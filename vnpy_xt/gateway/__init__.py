@@ -1,1 +1,1 @@
-from .xt_gateway import Xtateway
+from .xt_gateway import XtGateway
