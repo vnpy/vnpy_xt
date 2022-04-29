@@ -61,3 +61,12 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
+## 连接
+
+连接前请先登录QMT极速策略交易平台交易终端（点击安装文件夹中bin.x64下的XtMiniQmt.exe启动）。
+
+请注意：
+1. 目前使用需要先点击安装文件夹中bin.x64下的XtItClient.exe登录客户端，点击中间界面上方的【下载Python库】-【Python库下载】下载所需的第三方包。下载完成后，再将xtquant包的路径添加到python的环境变量中。
+
+2. 登录XtGateway时填写的【路径】参数为f"{放置安装文件夹的路径}\\userdata_mini"；填写的【资金账号】参数是账号资金页面的账号，不是登录客户端的账号。
