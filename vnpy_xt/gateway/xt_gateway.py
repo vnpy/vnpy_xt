@@ -466,6 +466,7 @@ class XtTdApi(XtQuantTraderCallback):
         sysid: str = self.localid_sysid_map.get(req.orderid, None)
         if not sysid:
             self.gateway.write_log("撤单失败，找不到委托号")
+            return
 
         cancel_result = self.client.cancel_order_stock_async(self.acc, sysid)
         print("cancel_result", cancel_result)
