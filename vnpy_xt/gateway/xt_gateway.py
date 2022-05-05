@@ -323,10 +323,11 @@ class XtTdApi(XtQuantTraderCallback):
         if asset:
             account: AccountData = AccountData(
                 accountid=asset.account_id,
-                balance=asset.cash,
+                balance=asset.total_asset,
                 frozen=asset.frozen_cash,
                 gateway_name=self.gateway_name
             )
+            account.available = asset.cash
             self.gateway.on_account(account)
 
     def on_stock_trade(self, data):
