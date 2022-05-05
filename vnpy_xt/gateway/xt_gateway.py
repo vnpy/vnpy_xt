@@ -276,7 +276,7 @@ class XtTdApi(XtQuantTraderCallback):
         self.gateway.on_order(order)
         self.localid_sysid_map[data.order_remark] = data.order_id
 
-    def on_stock_order_async(self, orders):
+    def on_query_order_async(self, orders):
         """"""
         if orders:
             for d in orders:
@@ -300,7 +300,7 @@ class XtTdApi(XtQuantTraderCallback):
                 self.gateway.on_order(order)
                 self.localid_sysid_map[order.orderid] = d.order_id          #str
 
-    def on_stock_asset_async(self, asset):
+    def on_query_asset_async(self, asset):
         """"""
         if asset:
             account: AccountData = AccountData(
@@ -332,7 +332,7 @@ class XtTdApi(XtQuantTraderCallback):
         )
         self.gateway.on_trade(trade)
 
-    def on_stock_trades_async(self, trades):
+    def on_query_trades_async(self, trades):
         """"""
         if trades:
             for d in trades:
@@ -350,7 +350,7 @@ class XtTdApi(XtQuantTraderCallback):
                 )
                 self.gateway.on_trade(trade)
 
-    def on_stock_positions_async(self, positions):
+    def on_query_positions_async(self, positions):
         """"""
         if positions:
             for d in positions:
@@ -455,19 +455,19 @@ class XtTdApi(XtQuantTraderCallback):
 
     def query_position(self) -> None:
         """查询持仓"""
-        self.client.query_stock_positions_async(self.acc, self.on_stock_positions_async)
+        self.client.query_stock_positions_async(self.acc, self.on_query_positions_async)
 
     def query_account(self) -> None:
         """查询账户资金"""
-        self.client.query_stock_asset_async(self.acc, self.on_stock_asset_async)
+        self.client.query_stock_asset_async(self.acc, self.on_query_asset_async)
 
     def query_order(self) -> None:
         """查询委托信息"""
-        self.client.query_stock_orders_async(self.acc, self.on_stock_order_async)
+        self.client.query_stock_orders_async(self.acc, self.on_query_order_async)
 
     def query_trade(self) -> None:
         """查询成交信息"""
-        self.client.query_stock_trades_async(self.acc, self.on_stock_trades_async)
+        self.client.query_stock_trades_async(self.acc, self.on_query_trades_async)
 
     def connect(self, path: str, accountid: str) -> str:
         """"""
