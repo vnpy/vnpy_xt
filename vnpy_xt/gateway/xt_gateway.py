@@ -388,14 +388,19 @@ class XtTdApi(XtQuantTraderCallback):
                 )
                 self.gateway.on_position(position)
 
-    def on_order_error(self, order_error):
+    def on_order_error(self, error):
         """
         委托失败推送
         :param order_error:XtOrderError 对象
         :return:
         """
         print("on order_error callback")
-        print(order_error.order_id, order_error.error_id, order_error.error_msg)
+        order: OrderData = self.gateway.get_order(error.order_remark)
+        if order:
+            order.status = Status.REJECTED
+            self.gateway.on_order(order)
+            
+            self.gateway.write_log(f"交易委托失败, 错误代码{error.error_id}, 错误信息{error.error_msg}")
 
     def on_cancel_error(self, cancel_error):
         """
