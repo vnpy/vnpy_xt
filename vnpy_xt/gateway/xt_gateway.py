@@ -1,4 +1,3 @@
-from time import sleep
 import pytz
 from datetime import datetime
 from typing import Dict, Tuple, List
@@ -7,7 +6,7 @@ from xtquant.xttype import StockAccount
 from xtquant import xtconstant
 from xtquant.xtdata import subscribe_whole_quote
 
-from vnpy.event import EventEngine
+from vnpy.event import EventEngine, EVENT_TIMER
 from vnpy.trader.gateway import BaseGateway
 from vnpy.trader.object import (
     OrderData,
@@ -106,6 +105,8 @@ class XtGateway(BaseGateway):
         self.td_api.init(path, accountid)
         self.md_api.connect()
 
+        self.init_query()
+
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
         self.md_api.subscribe(req)
@@ -138,6 +139,23 @@ class XtGateway(BaseGateway):
     def close(self) -> None:
         """关闭接口"""
         self.td_api.close()
+
+    def process_timer_event(self, event) -> None:
+        """定时事件处理"""
+        self.count += 1
+        if self.count < 2:
+            return
+        self.count = 0
+
+        func = self.query_functions.pop(0)
+        func()
+        self.query_functions.append(func)
+
+    def init_query(self) -> None:
+        """初始化查询任务"""
+        self.count: int = 0
+        self.query_functions: list = [self.query_account, self.query_position]
+        self.event_engine.register(EVENT_TIMER, self.process_timer_event)
 
 
 class XtMdApi:
@@ -231,26 +249,26 @@ class XtTdApi(XtQuantTraderCallback):
         else:
             self.gateway.write_log("已经初始化，请勿重复操作")
 
-    def on_connected(self):
-        """
-        连接成功推送
-        """
-        print("on_connected!!!")
-
-    def on_disconnected(self):
-        """
-        连接断开:
-        return:
-        """
-        print("connection lost")
-        self.gateway.write_log("交易服务器连接断开")
-        self.connected = False
-        connect_result = self.client.connect()
-
-        if connect_result:
-            self.gateway.write_log("交易服务器重连失败")
-        else:
-            self.gateway.write_log("交易服务器连接成功")
+#    def on_connected(self):
+#        """
+#        连接成功推送
+#        """
+#        print("on_connected!!!")
+#
+#    def on_disconnected(self):
+#        """
+#        连接断开:
+#        return:
+#        """
+#        print("connection lost")
+#        self.gateway.write_log("交易服务器连接断开")
+#        self.connected = False
+#        connect_result = self.client.connect()
+#
+#        if connect_result:
+#            self.gateway.write_log("交易服务器重连失败")
+#        else:
+#            self.gateway.write_log("交易服务器连接成功")
 
     def on_stock_order(self, data):
         """
