@@ -300,16 +300,6 @@ class XtTdApi(XtQuantTraderCallback):
                 self.gateway.on_order(order)
                 self.localid_sysid_map[order.orderid] = d.order_id          #str
 
-    def on_stock_asset(self, asset):
-        """
-        资金变动推送
-        :param asset: XtAsset对象
-        :return:
-        """
-        print("on asset callback!!!")
-        if asset:
-            print("cash", asset.cash)
-
     def on_stock_asset_async(self, asset):
         """"""
         if asset:
@@ -359,16 +349,6 @@ class XtTdApi(XtQuantTraderCallback):
                     gateway_name=self.gateway_name
                 )
                 self.gateway.on_trade(trade)
-
-    def on_stock_position(self, position):
-        """
-        持仓变动推送
-        :param position: XtPosition对象
-        :return:
-        """
-        # 目前没收到过
-        print("on position callback!!!")
-        print(position.stock_code, position.volume)
 
     def on_stock_positions_async(self, positions):
         """"""
