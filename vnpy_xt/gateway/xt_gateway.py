@@ -255,11 +255,13 @@ class XtMdApi:
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
-        if req.symbol in symbol_contract_map:
-            symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
-            if req.symbol not in self.subscribed:
-                subscribe_quote(stock_code=symbol, period='tick', callback=self.onmarketdata)
-                self.subscribed.add(req.symbol)
+        if req.symbol not in symbol_contract_map:
+            return
+
+        symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+        if req.symbol not in self.subscribed:
+            subscribe_quote(stock_code=symbol, period='tick', callback=self.onmarketdata)
+            self.subscribed.add(req.symbol)
 
     def close(self) -> None:
         """关闭连接"""
@@ -320,34 +322,41 @@ class XtTdApi(XtQuantTraderCallback):
         :param order: XtOrder对象
         :return:
         """
-        symbol, exchange = (data.stock_code).split(".")
-        order: OrderData = OrderData(
-            symbol=symbol,
-            exchange=EXCHANGE_XT2VT[exchange],
-            orderid=data.order_remark,
-            direction=DIRECTION_XT2VT[data.order_type],
-            type=ORDERTYPE_XT2VT[data.price_type],                #目前测出来与文档不同，限价返回50，市价返回88
-            price=data.price,
-            volume=data.order_volume,
-            traded=data.traded_volume,
-            status=STATUS_XT2VT.get(data.order_status, Status.SUBMITTING),
-            datetime=generate_datetime(data.order_time),
-            gateway_name=self.gateway_name
-        )
-        self.gateway.on_order(order)
-        self.localid_sysid_map[data.order_remark] = data.order_id
+        type: OrderType = ORDERTYPE_XT2VT.get(data.price_type, None)
+
+        if data.order_remark and type:
+            symbol, exchange = (data.stock_code).split(".")
+            order: OrderData = OrderData(
+                symbol=symbol,
+                exchange=EXCHANGE_XT2VT[exchange],
+                orderid=data.order_remark,
+                direction=DIRECTION_XT2VT[data.order_type],
+                type=type,                #目前测出来与文档不同，限价返回50，市价返回88
+                price=data.price,
+                volume=data.order_volume,
+                traded=data.traded_volume,
+                status=STATUS_XT2VT.get(data.order_status, Status.SUBMITTING),
+                datetime=generate_datetime(data.order_time),
+                gateway_name=self.gateway_name
+            )
+            self.gateway.on_order(order)
+            self.localid_sysid_map[data.order_remark] = data.order_id
 
     def on_query_order_async(self, orders) -> None:
         """委托信息异步查询回报"""
-        if orders:
-            for d in orders:
-                symbol, exchange = (d.stock_code).split(".")
+        if not orders:
+            return
+
+        for d in orders:
+            symbol, exchange = (d.stock_code).split(".")
+            type: OrderType = ORDERTYPE_XT2VT.get(d.price_type, None)
+            if d.order_remark and type:
                 order: OrderData = OrderData(
                     symbol=symbol,
                     exchange=EXCHANGE_XT2VT[exchange],
                     orderid=d.order_remark,
                     direction=DIRECTION_XT2VT[d.order_type],
-                    type=ORDERTYPE_XT2VT[d.price_type],                #目前测出来与文档不同，限价返回50，深圳市价返回88
+                    type=type,                #目前测出来与文档不同，限价返回50，深圳市价返回88
                     price=d.price,
                     volume=d.order_volume,
                     traded=d.traded_volume,
@@ -360,15 +369,17 @@ class XtTdApi(XtQuantTraderCallback):
 
     def on_query_asset_async(self, asset) -> None:
         """资金信息异步查询回报"""
-        if asset:
-            account: AccountData = AccountData(
-                accountid=asset.account_id,
-                balance=asset.total_asset,
-                frozen=asset.frozen_cash,
-                gateway_name=self.gateway_name
-            )
-            account.available = asset.cash
-            self.gateway.on_account(account)
+        if not asset:
+            return
+
+        account: AccountData = AccountData(
+            accountid=asset.account_id,
+            balance=asset.total_asset,
+            frozen=asset.frozen_cash,
+            gateway_name=self.gateway_name
+        )
+        account.available = asset.cash
+        self.gateway.on_account(account)
 
     def on_stock_trade(self, data) -> None:
         """
@@ -376,24 +387,28 @@ class XtTdApi(XtQuantTraderCallback):
         :param trade: XtTrade对象
         :return:
         """
-        symbol, exchange = (data.stock_code).split(".")
-        trade: TradeData = TradeData(
-            symbol=symbol,
-            exchange=EXCHANGE_XT2VT[exchange],
-            orderid=data.order_remark,
-            tradeid=data.traded_id,
-            direction=DIRECTION_XT2VT[data.order_type],
-            price=data.traded_price,
-            volume=data.traded_volume,
-            datetime=generate_datetime(data.traded_time),
-            gateway_name=self.gateway_name
-        )
-        self.gateway.on_trade(trade)
+        if data.order_remark:
+            symbol, exchange = (data.stock_code).split(".")
+            trade: TradeData = TradeData(
+                symbol=symbol,
+                exchange=EXCHANGE_XT2VT[exchange],
+                orderid=data.order_remark,
+                tradeid=data.traded_id,
+                direction=DIRECTION_XT2VT[data.order_type],
+                price=data.traded_price,
+                volume=data.traded_volume,
+                datetime=generate_datetime(data.traded_time),
+                gateway_name=self.gateway_name
+            )
+            self.gateway.on_trade(trade)
 
     def on_query_trades_async(self, trades) -> None:
         """成交信息异步查询回报"""
-        if trades:
-            for d in trades:
+        if not trades:
+            return
+
+        for d in trades:
+            if d.order_remark:
                 symbol, exchange = (d.stock_code).split(".")
                 trade: TradeData = TradeData(
                     symbol=symbol,
@@ -410,10 +425,11 @@ class XtTdApi(XtQuantTraderCallback):
 
     def on_query_positions_async(self, positions) -> None:
         """持仓信息异步查询回报"""
-        if positions:
-            for d in positions:
-                if not d.market_value:
-                    continue
+        if not positions:
+            return
+
+        for d in positions:
+            if d.market_value:
                 symbol, exchange = (d.stock_code).split(".")
                 position: PositionData = PositionData(
                     symbol=symbol,
@@ -438,17 +454,15 @@ class XtTdApi(XtQuantTraderCallback):
             order.status = Status.REJECTED
             self.gateway.on_order(order)
             
-            self.gateway.write_log(f"交易委托失败, 错误代码{error.error_id}, 错误信息{error.error_msg}")
+        self.gateway.write_log(f"交易委托失败, 错误代码{error.error_id}, 错误信息{error.error_msg}")
 
-    def on_cancel_error(self, cancel_error) -> None:
+    def on_cancel_error(self, error) -> None:
         """
         撤单失败推送
         :param cancel_error: XtCancelError 对象
         :return:
         """
-        print("on cancel_error callback")
-        print(cancel_error.order_id, cancel_error.error_id,
-        cancel_error.error_msg)
+        self.gateway.write_log(f"交易撤单失败, 错误代码{error.error_id}, 错误信息{error.error_msg}")
 
     def on_order_stock_async_response(self, response) -> None:
         """
@@ -456,15 +470,14 @@ class XtTdApi(XtQuantTraderCallback):
         :param response: XtOrderResponse 对象
         :return:
         """
-        print("on_order_stock_async_response")
+        pass
 
     def on_cancel_order_stock_async_response(self, response) -> None:
         """
         :param response: XtCancelOrderResponse 对象
         :return:
         """
-        print("on_order_stock_async_response!!!")
-        print(response.cancel_result, response.order_id, response.seq, response.order_sysid)
+        pass
 
     def new_orderid(self) -> str:
         """生成本地委托号"""
