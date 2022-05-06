@@ -4,7 +4,7 @@ from typing import Dict, Tuple, List
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
 from xtquant import xtconstant
-from xtquant.xtdata import subscribe_whole_quote
+from xtquant.xtdata import subscribe_whole_quote, subscribe_quote, get_full_tick, get_instrument_detail
 
 from vnpy.event import EventEngine, EVENT_TIMER
 from vnpy.trader.gateway import BaseGateway
@@ -23,7 +23,8 @@ from vnpy.trader.constant import (
     OrderType,
     Direction,
     Exchange,
-    Status
+    Status,
+    Product
 )
 
 
@@ -172,7 +173,6 @@ class XtMdApi:
 
     def onMarketData(self, datas: dict) -> None:
         """订阅行情回报"""
-
         for k, d in datas.items():
             symbol, exchange = k.split(".")
             if symbol in self.subscribed:
@@ -203,6 +203,28 @@ class XtMdApi:
         if not self.inited:
             self.inited = True
             subscribe_whole_quote(['SH', 'SZ'], callback=self.onMarketData)
+
+            datas: list = list(get_full_tick(['SH', 'SZ']).keys())
+            for d in datas:
+                SZ_stock = d.startswith('00') and d.endswith('SZ')
+                if d.startswith(('159','51','60','68')) or SZ_stock:
+                    symbol, exchange = d.split(".")
+                    data: dict = get_instrument_detail(d)
+                    contract: ContractData = ContractData(
+                        symbol=symbol,
+                        exchange=EXCHANGE_XT2VT[exchange],
+                        name=data["InstrumentName"],
+                        product=Product.EQUITY,
+                        size=1,
+                        pricetick=data["PriceTick"],
+                        gateway_name=self.gateway_name
+                    )
+                    if d.startswith(('159','51')):
+                        contract.product = Product.FUND
+                    symbol_contract_map[symbol] = contract
+                    self.gateway.on_contract(contract)
+            self.gateway.write_log("合约信息查询成功")
+
         else:
             self.gateway.write_log("行情API已经初始化，请勿重复操作")
 
