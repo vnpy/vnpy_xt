@@ -4,7 +4,7 @@ from typing import Dict, Tuple, List
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
 from xtquant import xtconstant
-from xtquant.xtdata import subscribe_whole_quote
+from xtquant.xtdata import subscribe_whole_quote, subscribe_quote, get_full_tick, get_instrument_detail
 
 from vnpy.event import EventEngine, EVENT_TIMER
 from vnpy.trader.gateway import BaseGateway
@@ -23,7 +23,8 @@ from vnpy.trader.constant import (
     OrderType,
     Direction,
     Exchange,
-    Status
+    Status,
+    Product
 )
 
 
@@ -172,15 +173,13 @@ class XtMdApi:
 
     def onMarketData(self, datas: dict) -> None:
         """订阅行情回报"""
-
         for k, d in datas.items():
             symbol, exchange = k.split(".")
             if symbol in self.subscribed:
                 tick: TickData = TickData(
                     symbol=symbol,
-                    # exchange=symbol_contract_map[symbol].exchange,
-                    exchange=EXCHANGE_XT2VT[exchange],
-                    name=symbol,
+                    exchange=symbol_contract_map[symbol].exchange,
+                    name=symbol_contract_map[symbol].name,
                     datetime=generate_datetime(d["time"], True),
                     volume=d["volume"],
                     turnover=d["amount"],
@@ -198,18 +197,69 @@ class XtMdApi:
                 tick.ask_volume_1, tick.ask_volume_2, tick.ask_volume_3, tick.ask_volume_4, tick.ask_volume_5 = d["askVol"]
                 self.gateway.on_tick(tick)
 
+    def onmarketdata(self, datas: dict) -> None:
+        """订阅行情回报"""
+        k: str = next(iter(datas.keys()))
+        d: dict = next(iter(datas.values()))[0]
+        symbol, exchange = k.split(".")
+        tick: TickData = TickData(
+            symbol=symbol,
+            exchange=symbol_contract_map[symbol].exchange,
+            name=symbol_contract_map[symbol].name,
+            datetime=generate_datetime(d["time"], True),
+            volume=d["volume"],
+            turnover=d["amount"],
+            open_interest=d["openInt"],
+            last_price=d["lastPrice"],
+            open_price=d["open"],
+            high_price=d["high"],
+            low_price=d["low"],
+            pre_close=d["lastClose"],
+            gateway_name=self.gateway_name
+        )
+        tick.bid_price_1, tick.bid_price_2, tick.bid_price_3, tick.bid_price_4, tick.bid_price_5 = d["bidPrice"]
+        tick.ask_price_1, tick.ask_price_2, tick.ask_price_3, tick.ask_price_4, tick.ask_price_5 = d["askPrice"]
+        tick.bid_volume_1, tick.bid_volume_2, tick.bid_volume_3, tick.bid_volume_4, tick.bid_volume_5 = d["bidVol"]
+        tick.ask_volume_1, tick.ask_volume_2, tick.ask_volume_3, tick.ask_volume_4, tick.ask_volume_5 = d["askVol"]
+        self.gateway.on_tick(tick)
+
     def connect(self) -> None:
         """连接服务器"""
         if not self.inited:
             self.inited = True
-            subscribe_whole_quote(['SH', 'SZ'], callback=self.onMarketData)
+            # subscribe_whole_quote(['SH', 'SZ'], callback=self.onMarketData)  全市场订阅
+
+            datas: list = list(get_full_tick(['SH', 'SZ']).keys())
+            for d in datas:
+                SZ_stock = d.startswith('00') and d.endswith('SZ')
+                if d.startswith(('159','51','60','68')) or SZ_stock:
+                    symbol, exchange = d.split(".")
+                    data: dict = get_instrument_detail(d)
+                    contract: ContractData = ContractData(
+                        symbol=symbol,
+                        exchange=EXCHANGE_XT2VT[exchange],
+                        name=data["InstrumentName"],
+                        product=Product.EQUITY,
+                        size=1,
+                        pricetick=data["PriceTick"],
+                        gateway_name=self.gateway_name
+                    )
+                    if d.startswith(('159','51')):
+                        contract.product = Product.FUND
+                    symbol_contract_map[symbol] = contract
+                    self.gateway.on_contract(contract)
+            self.gateway.write_log("合约信息查询成功")
+
         else:
             self.gateway.write_log("行情API已经初始化，请勿重复操作")
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
-        #if req.symbol in symbol_contract_map:
-        self.subscribed.add(req.symbol)
+        if req.symbol in symbol_contract_map:
+            symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+            if req.symbol not in self.subscribed:
+                subscribe_quote(stock_code=symbol, period='tick', callback=self.onmarketdata)
+                self.subscribed.add(req.symbol)
 
     def close(self) -> None:
         """关闭连接"""
@@ -228,17 +278,12 @@ class XtTdApi(XtQuantTraderCallback):
         self.inited: bool = False
         self.connected: bool = False
 
-        self.date: str = datetime.now().strftime("%Y%m%d")
-
-        self.accountid: str = ""
-
-        self.order_count: int = 0
-        self.trade_count: int = 0
         self.order_ref: int = 0
 
         self.localid_sysid_map: Dict[str, str] = {}
 
         self.client: XtQuantTrader = None
+        self.acc: StockAccount = None
 
     def init(self, path: str, accountid: str) -> None:
         """初始化"""
@@ -249,34 +294,32 @@ class XtTdApi(XtQuantTraderCallback):
         else:
             self.gateway.write_log("已经初始化，请勿重复操作")
 
-#    def on_connected(self):
-#        """
-#        连接成功推送
-#        """
-#        print("on_connected!!!")
-#
-#    def on_disconnected(self):
-#        """
-#        连接断开:
-#        return:
-#        """
-#        print("connection lost")
-#        self.gateway.write_log("交易服务器连接断开")
-#        self.connected = False
-#        connect_result = self.client.connect()
-#
-#        if connect_result:
-#            self.gateway.write_log("交易服务器重连失败")
-#        else:
-#            self.gateway.write_log("交易服务器连接成功")
+    def on_connected(self):
+        """
+        连接成功推送
+        """
+        pass
 
-    def on_stock_order(self, data):
+    def on_disconnected(self):
+        """
+        连接断开:
+        return:
+        """
+        self.gateway.write_log("交易服务器连接断开，请检查与客户端的连接状态")
+        self.connected = False
+        connect_result = self.client.connect()
+
+        if connect_result:
+            self.gateway.write_log("交易服务器重连失败")
+        else:
+            self.gateway.write_log("交易服务器连接成功")
+
+    def on_stock_order(self, data) -> None:
         """
         委托回报推送
         :param order: XtOrder对象
         :return:
         """
-        print("on order callback:")
         symbol, exchange = (data.stock_code).split(".")
         order: OrderData = OrderData(
             symbol=symbol,
@@ -294,13 +337,10 @@ class XtTdApi(XtQuantTraderCallback):
         self.gateway.on_order(order)
         self.localid_sysid_map[data.order_remark] = data.order_id
 
-    def on_query_order_async(self, orders):
-        """"""
+    def on_query_order_async(self, orders) -> None:
+        """委托信息异步查询回报"""
         if orders:
             for d in orders:
-                #if not ordertype:
-                #    continue
-
                 symbol, exchange = (d.stock_code).split(".")
                 order: OrderData = OrderData(
                     symbol=symbol,
@@ -318,8 +358,8 @@ class XtTdApi(XtQuantTraderCallback):
                 self.gateway.on_order(order)
                 self.localid_sysid_map[order.orderid] = d.order_id          #str
 
-    def on_query_asset_async(self, asset):
-        """"""
+    def on_query_asset_async(self, asset) -> None:
+        """资金信息异步查询回报"""
         if asset:
             account: AccountData = AccountData(
                 accountid=asset.account_id,
@@ -330,13 +370,12 @@ class XtTdApi(XtQuantTraderCallback):
             account.available = asset.cash
             self.gateway.on_account(account)
 
-    def on_stock_trade(self, data):
+    def on_stock_trade(self, data) -> None:
         """
         成交变动推送
         :param trade: XtTrade对象
         :return:
         """
-        print("on trade callback:")
         symbol, exchange = (data.stock_code).split(".")
         trade: TradeData = TradeData(
             symbol=symbol,
@@ -351,8 +390,8 @@ class XtTdApi(XtQuantTraderCallback):
         )
         self.gateway.on_trade(trade)
 
-    def on_query_trades_async(self, trades):
-        """"""
+    def on_query_trades_async(self, trades) -> None:
+        """成交信息异步查询回报"""
         if trades:
             for d in trades:
                 symbol, exchange = (d.stock_code).split(".")
@@ -369,8 +408,8 @@ class XtTdApi(XtQuantTraderCallback):
                 )
                 self.gateway.on_trade(trade)
 
-    def on_query_positions_async(self, positions):
-        """"""
+    def on_query_positions_async(self, positions) -> None:
+        """持仓信息异步查询回报"""
         if positions:
             for d in positions:
                 if not d.market_value:
@@ -388,13 +427,12 @@ class XtTdApi(XtQuantTraderCallback):
                 )
                 self.gateway.on_position(position)
 
-    def on_order_error(self, error):
+    def on_order_error(self, error) -> None:
         """
         委托失败推送
         :param order_error:XtOrderError 对象
         :return:
         """
-        print("on order_error callback")
         order: OrderData = self.gateway.get_order(error.order_remark)
         if order:
             order.status = Status.REJECTED
@@ -402,7 +440,7 @@ class XtTdApi(XtQuantTraderCallback):
             
             self.gateway.write_log(f"交易委托失败, 错误代码{error.error_id}, 错误信息{error.error_msg}")
 
-    def on_cancel_error(self, cancel_error):
+    def on_cancel_error(self, cancel_error) -> None:
         """
         撤单失败推送
         :param cancel_error: XtCancelError 对象
@@ -412,16 +450,15 @@ class XtTdApi(XtQuantTraderCallback):
         print(cancel_error.order_id, cancel_error.error_id,
         cancel_error.error_msg)
 
-    def on_order_stock_async_response(self, response):
+    def on_order_stock_async_response(self, response) -> None:
         """
         异步下单回报推送
         :param response: XtOrderResponse 对象
         :return:
         """
-        pass
         print("on_order_stock_async_response")
 
-    def on_cancel_order_stock_async_response(self, response):
+    def on_cancel_order_stock_async_response(self, response) -> None:
         """
         :param response: XtCancelOrderResponse 对象
         :return:
@@ -441,6 +478,11 @@ class XtTdApi(XtQuantTraderCallback):
 
     def send_order(self, req: OrderRequest) -> str:
         """委托下单"""
+        contract: ContractData = symbol_contract_map.get(req.symbol, None)
+        if not contract:
+            self.gateway.write_log(f"找不到该合约{req.symbol}")
+            return ""
+
         if not req.price:
             self.gateway.write_log("请检查委托价格")
             return ""
@@ -474,9 +516,7 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log("撤单失败，找不到委托号")
             return
 
-        cancel_result = self.client.cancel_order_stock_async(self.acc, sysid)
-        print("cancel_result", cancel_result)
-        # 部分成交后进行撤单。撤单结果大于0，根据文档应是撤单成功，但客户端和API推送的状态仍是【部成】，需要之后接着调试。
+        self.client.cancel_order_stock_async(self.acc, sysid)
 
     def query_position(self) -> None:
         """查询持仓"""
@@ -495,8 +535,8 @@ class XtTdApi(XtQuantTraderCallback):
         self.client.query_stock_trades_async(self.acc, self.on_query_trades_async)
 
     def connect(self, path: str, accountid: str) -> str:
-        """"""
-        session = int(float(datetime.now().strftime("%H%M%S.%f"))*1000)
+        """连接服务器"""
+        session: int = int(float(datetime.now().strftime("%H%M%S.%f"))*1000)
         self.client = XtQuantTrader(path, session)
 
         self.acc = StockAccount(accountid)
@@ -508,7 +548,7 @@ class XtTdApi(XtQuantTraderCallback):
         self.client.start()
 
         # 建立交易连接，返回0表示连接成功
-        connect_result = self.client.connect()
+        connect_result: int = self.client.connect()
         if connect_result:
             self.gateway.write_log("交易服务器连接失败")
             return
@@ -517,15 +557,15 @@ class XtTdApi(XtQuantTraderCallback):
         self.gateway.write_log("交易服务器连接成功")
 
         # 对交易回调进行订阅，订阅后可以收到交易主推，返回0表示订阅成功
-        subscribe_result = self.client.subscribe(self.acc)
+        subscribe_result: int = self.client.subscribe(self.acc)
         if subscribe_result:
             self.gateway.write_log("交易服务器订阅失败")
             return
             
         self.gateway.write_log("交易服务器订阅成功")
 
-        self.query_account()           #先只改成了异步，还没做轮询
-        self.query_position()          #先只改成了异步，还没做轮询
+        self.query_account()
+        self.query_position()
         self.query_order()
         self.query_trade()
 
