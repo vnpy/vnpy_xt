@@ -198,11 +198,38 @@ class XtMdApi:
                 tick.ask_volume_1, tick.ask_volume_2, tick.ask_volume_3, tick.ask_volume_4, tick.ask_volume_5 = d["askVol"]
                 self.gateway.on_tick(tick)
 
+    def onmarketdata(self, datas: dict) -> None:
+        """订阅行情回报"""
+        k: str = next(iter(datas.keys()))
+        d: dict = next(iter(datas.values()))[0]
+        symbol, exchange = k.split(".")
+        tick: TickData = TickData(
+            symbol=symbol,
+            # exchange=symbol_contract_map[symbol].exchange,
+            exchange=EXCHANGE_XT2VT[exchange],
+            name=symbol,
+            datetime=generate_datetime(d["time"], True),
+            volume=d["volume"],
+            turnover=d["amount"],
+            open_interest=d["openInt"],
+            last_price=d["lastPrice"],
+            open_price=d["open"],
+            high_price=d["high"],
+            low_price=d["low"],
+            pre_close=d["lastClose"],
+            gateway_name=self.gateway_name
+        )
+        tick.bid_price_1, tick.bid_price_2, tick.bid_price_3, tick.bid_price_4, tick.bid_price_5 = d["bidPrice"]
+        tick.ask_price_1, tick.ask_price_2, tick.ask_price_3, tick.ask_price_4, tick.ask_price_5 = d["askPrice"]
+        tick.bid_volume_1, tick.bid_volume_2, tick.bid_volume_3, tick.bid_volume_4, tick.bid_volume_5 = d["bidVol"]
+        tick.ask_volume_1, tick.ask_volume_2, tick.ask_volume_3, tick.ask_volume_4, tick.ask_volume_5 = d["askVol"]
+        self.gateway.on_tick(tick)
+
     def connect(self) -> None:
         """连接服务器"""
         if not self.inited:
             self.inited = True
-            subscribe_whole_quote(['SH', 'SZ'], callback=self.onMarketData)
+            # subscribe_whole_quote(['SH', 'SZ'], callback=self.onMarketData)  全市场订阅
 
             datas: list = list(get_full_tick(['SH', 'SZ']).keys())
             for d in datas:
@@ -230,8 +257,11 @@ class XtMdApi:
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
-        #if req.symbol in symbol_contract_map:
-        self.subscribed.add(req.symbol)
+        if req.symbol in symbol_contract_map:
+            symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+            if req.symbol not in self.subscribed:
+                subscribe_quote(stock_code=symbol, period='tick', callback=self.onmarketdata)
+                self.subscribed.add(req.symbol)
 
     def close(self) -> None:
         """关闭连接"""
