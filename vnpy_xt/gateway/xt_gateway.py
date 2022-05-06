@@ -178,9 +178,8 @@ class XtMdApi:
             if symbol in self.subscribed:
                 tick: TickData = TickData(
                     symbol=symbol,
-                    # exchange=symbol_contract_map[symbol].exchange,
-                    exchange=EXCHANGE_XT2VT[exchange],
-                    name=symbol,
+                    exchange=symbol_contract_map[symbol].exchange,
+                    name=symbol_contract_map[symbol].name,
                     datetime=generate_datetime(d["time"], True),
                     volume=d["volume"],
                     turnover=d["amount"],
@@ -205,9 +204,8 @@ class XtMdApi:
         symbol, exchange = k.split(".")
         tick: TickData = TickData(
             symbol=symbol,
-            # exchange=symbol_contract_map[symbol].exchange,
-            exchange=EXCHANGE_XT2VT[exchange],
-            name=symbol,
+            exchange=symbol_contract_map[symbol].exchange,
+            name=symbol_contract_map[symbol].name,
             datetime=generate_datetime(d["time"], True),
             volume=d["volume"],
             turnover=d["amount"],
@@ -481,6 +479,11 @@ class XtTdApi(XtQuantTraderCallback):
 
     def send_order(self, req: OrderRequest) -> str:
         """委托下单"""
+        contract: ContractData = symbol_contract_map.get(req.symbol, None)
+        if not contract:
+            self.gateway.write_log(f"找不到该合约{req.symbol}")
+            return ""
+
         if not req.price:
             self.gateway.write_log("请检查委托价格")
             return ""
