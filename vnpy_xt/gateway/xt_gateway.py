@@ -320,43 +320,47 @@ class XtTdApi(XtQuantTraderCallback):
         :param order: XtOrder对象
         :return:
         """
-        symbol, exchange = (data.stock_code).split(".")
-        order: OrderData = OrderData(
-            symbol=symbol,
-            exchange=EXCHANGE_XT2VT[exchange],
-            orderid=data.order_remark,
-            direction=DIRECTION_XT2VT[data.order_type],
-            type=ORDERTYPE_XT2VT[data.price_type],                #目前测出来与文档不同，限价返回50，市价返回88
-            price=data.price,
-            volume=data.order_volume,
-            traded=data.traded_volume,
-            status=STATUS_XT2VT.get(data.order_status, Status.SUBMITTING),
-            datetime=generate_datetime(data.order_time),
-            gateway_name=self.gateway_name
-        )
-        self.gateway.on_order(order)
-        self.localid_sysid_map[data.order_remark] = data.order_id
+        type: OrderType = ORDERTYPE_XT2VT.get(data.price_type, None)
+        if data.order_remark and type:
+            symbol, exchange = (data.stock_code).split(".")
+            order: OrderData = OrderData(
+                symbol=symbol,
+                exchange=EXCHANGE_XT2VT[exchange],
+                orderid=data.order_remark,
+                direction=DIRECTION_XT2VT[data.order_type],
+                type=type,                #目前测出来与文档不同，限价返回50，市价返回88
+                price=data.price,
+                volume=data.order_volume,
+                traded=data.traded_volume,
+                status=STATUS_XT2VT.get(data.order_status, Status.SUBMITTING),
+                datetime=generate_datetime(data.order_time),
+                gateway_name=self.gateway_name
+            )
+            self.gateway.on_order(order)
+            self.localid_sysid_map[data.order_remark] = data.order_id
 
     def on_query_order_async(self, orders) -> None:
         """委托信息异步查询回报"""
         if orders:
             for d in orders:
                 symbol, exchange = (d.stock_code).split(".")
-                order: OrderData = OrderData(
-                    symbol=symbol,
-                    exchange=EXCHANGE_XT2VT[exchange],
-                    orderid=d.order_remark,
-                    direction=DIRECTION_XT2VT[d.order_type],
-                    type=ORDERTYPE_XT2VT[d.price_type],                #目前测出来与文档不同，限价返回50，深圳市价返回88
-                    price=d.price,
-                    volume=d.order_volume,
-                    traded=d.traded_volume,
-                    status=STATUS_XT2VT.get(d.order_status, Status.SUBMITTING),
-                    datetime=generate_datetime(d.order_time),
-                    gateway_name=self.gateway_name
-                )
-                self.gateway.on_order(order)
-                self.localid_sysid_map[order.orderid] = d.order_id          #str
+                type: OrderType = ORDERTYPE_XT2VT.get(d.price_type, None)
+                if d.order_remark and type:
+                    order: OrderData = OrderData(
+                        symbol=symbol,
+                        exchange=EXCHANGE_XT2VT[exchange],
+                        orderid=d.order_remark,
+                        direction=DIRECTION_XT2VT[d.order_type],
+                        type=type,                #目前测出来与文档不同，限价返回50，深圳市价返回88
+                        price=d.price,
+                        volume=d.order_volume,
+                        traded=d.traded_volume,
+                        status=STATUS_XT2VT.get(d.order_status, Status.SUBMITTING),
+                        datetime=generate_datetime(d.order_time),
+                        gateway_name=self.gateway_name
+                    )
+                    self.gateway.on_order(order)
+                    self.localid_sysid_map[order.orderid] = d.order_id          #str
 
     def on_query_asset_async(self, asset) -> None:
         """资金信息异步查询回报"""
@@ -376,37 +380,39 @@ class XtTdApi(XtQuantTraderCallback):
         :param trade: XtTrade对象
         :return:
         """
-        symbol, exchange = (data.stock_code).split(".")
-        trade: TradeData = TradeData(
-            symbol=symbol,
-            exchange=EXCHANGE_XT2VT[exchange],
-            orderid=data.order_remark,
-            tradeid=data.traded_id,
-            direction=DIRECTION_XT2VT[data.order_type],
-            price=data.traded_price,
-            volume=data.traded_volume,
-            datetime=generate_datetime(data.traded_time),
-            gateway_name=self.gateway_name
-        )
-        self.gateway.on_trade(trade)
+        if data.order_remark:
+            symbol, exchange = (data.stock_code).split(".")
+            trade: TradeData = TradeData(
+                symbol=symbol,
+                exchange=EXCHANGE_XT2VT[exchange],
+                orderid=data.order_remark,
+                tradeid=data.traded_id,
+                direction=DIRECTION_XT2VT[data.order_type],
+                price=data.traded_price,
+                volume=data.traded_volume,
+                datetime=generate_datetime(data.traded_time),
+                gateway_name=self.gateway_name
+            )
+            self.gateway.on_trade(trade)
 
     def on_query_trades_async(self, trades) -> None:
         """成交信息异步查询回报"""
         if trades:
             for d in trades:
-                symbol, exchange = (d.stock_code).split(".")
-                trade: TradeData = TradeData(
-                    symbol=symbol,
-                    exchange=EXCHANGE_XT2VT[exchange],
-                    orderid=d.order_remark,
-                    tradeid=d.traded_id,
-                    direction=DIRECTION_XT2VT[d.order_type],
-                    price=d.traded_price,
-                    volume=d.traded_volume,
-                    datetime=generate_datetime(d.traded_time),
-                    gateway_name=self.gateway_name
-                )
-                self.gateway.on_trade(trade)
+                if d.order_remark:
+                    symbol, exchange = (d.stock_code).split(".")
+                    trade: TradeData = TradeData(
+                        symbol=symbol,
+                        exchange=EXCHANGE_XT2VT[exchange],
+                        orderid=d.order_remark,
+                        tradeid=d.traded_id,
+                        direction=DIRECTION_XT2VT[d.order_type],
+                        price=d.traded_price,
+                        volume=d.traded_volume,
+                        datetime=generate_datetime(d.traded_time),
+                        gateway_name=self.gateway_name
+                    )
+                    self.gateway.on_trade(trade)
 
     def on_query_positions_async(self, positions) -> None:
         """持仓信息异步查询回报"""
