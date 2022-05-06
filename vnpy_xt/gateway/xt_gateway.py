@@ -276,7 +276,6 @@ class XtTdApi(XtQuantTraderCallback):
         self.gateway_name: str = gateway.gateway_name
 
         self.inited: bool = False
-        self.connected: bool = False
 
         self.order_ref: int = 0
 
@@ -293,27 +292,6 @@ class XtTdApi(XtQuantTraderCallback):
 
         else:
             self.gateway.write_log("已经初始化，请勿重复操作")
-
-#    def on_connected(self):
-#        """
-#        连接成功推送
-#        """
-#        print("on_connected!!!")
-#
-#    def on_disconnected(self):
-#        """
-#        连接断开:
-#        return:
-#        """
-#        print("connection lost")
-#        self.gateway.write_log("交易服务器连接断开")
-#        self.connected = False
-#        connect_result = self.client.connect()
-#
-#        if connect_result:
-#            self.gateway.write_log("交易服务器重连失败")
-#        else:
-#            self.gateway.write_log("交易服务器连接成功")
 
     def on_stock_order(self, data) -> None:
         """
@@ -553,8 +531,7 @@ class XtTdApi(XtQuantTraderCallback):
         if connect_result:
             self.gateway.write_log("交易服务器连接失败")
             return
-        
-        self.connected = True
+
         self.gateway.write_log("交易服务器连接成功")
 
         # 对交易回调进行订阅，订阅后可以收到交易主推，返回0表示订阅成功
