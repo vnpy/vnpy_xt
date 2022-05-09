@@ -1,11 +1,12 @@
 import pytz
 from datetime import datetime, timedelta, time
 from typing import Dict, Tuple, List
+
+from xtquant import xtconstant
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
-from xtquant import xtconstant
 from xtquant.xtdata import (
-    subscribe_whole_quote,
+    # subscribe_whole_quote,
     subscribe_quote,
     get_full_tick,
     get_instrument_detail,
@@ -253,7 +254,7 @@ class XtMdApi:
             datas: list = list(get_full_tick(['SH', 'SZ']).keys())
             for d in datas:
                 SZ_stock = d.startswith('00') and d.endswith('SZ')
-                if d.startswith(('159','51','60','68')) or SZ_stock:
+                if d.startswith(('159', '51', '60', '68')) or SZ_stock:
                     symbol, exchange = d.split(".")
                     data: dict = get_instrument_detail(d)
                     contract: ContractData = ContractData(
@@ -267,7 +268,7 @@ class XtMdApi:
                         gateway_name=self.gateway_name
                     )
 
-                    if d.startswith(('159','51')):
+                    if d.startswith(('159', '51')):
                         contract.product = Product.FUND
                     symbol_contract_map[symbol] = contract
 
@@ -317,7 +318,7 @@ class XtMdApi:
                 dt: datetime = generate_datetime(t, True)
                 incomplete_bar: bool = dt.date() == datetime.now().date() and datetime.now().time() < time(hour=15)
                 if incomplete_bar and t == time_list[-1]:
-                        continue
+                    continue
             else:
                 dt: datetime = generate_datetime(t, True, True)
                 if dt.time() < time(hour=9, minute=30):
@@ -414,7 +415,7 @@ class XtTdApi(XtQuantTraderCallback):
                 exchange=EXCHANGE_XT2VT[exchange],
                 orderid=data.order_remark,
                 direction=DIRECTION_XT2VT[data.order_type],
-                type=type,                #目前测出来与文档不同，限价返回50，市价返回88
+                type=type,                  # 目前测出来与文档不同，限价返回50，市价返回88
                 price=data.price,
                 volume=data.order_volume,
                 traded=data.traded_volume,
@@ -443,7 +444,7 @@ class XtTdApi(XtQuantTraderCallback):
                     exchange=EXCHANGE_XT2VT[exchange],
                     orderid=d.order_remark,
                     direction=DIRECTION_XT2VT[d.order_type],
-                    type=type,                #目前测出来与文档不同，限价返回50，深圳市价返回88
+                    type=type,                  # 目前测出来与文档不同，限价返回50，深圳市价返回88
                     price=d.price,
                     volume=d.order_volume,
                     traded=d.traded_volume,
@@ -452,7 +453,7 @@ class XtTdApi(XtQuantTraderCallback):
                     gateway_name=self.gateway_name
                 )
                 self.gateway.on_order(order)
-                self.active_localid_sysid_map[order.orderid] = d.order_id         #str
+                self.active_localid_sysid_map[order.orderid] = d.order_id         # str
 
                 if order.status in (Status.CANCELLED, Status.ALLTRADED):
                     self.active_localid_sysid_map.pop(order.orderid)
@@ -543,7 +544,7 @@ class XtTdApi(XtQuantTraderCallback):
         if order:
             order.status = Status.REJECTED
             self.gateway.on_order(order)
-            
+
         self.gateway.write_log(f"交易委托失败, 错误代码{error.error_id}, 错误信息{error.error_msg}")
 
     def on_cancel_error(self, error) -> None:
@@ -639,7 +640,7 @@ class XtTdApi(XtQuantTraderCallback):
 
     def connect(self, path: str, accountid: str) -> str:
         """连接服务器"""
-        session: int = int(float(datetime.now().strftime("%H%M%S.%f"))*1000)
+        session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
         self.client = XtQuantTrader(path, session)
 
         self.acc = StockAccount(accountid)
@@ -655,7 +656,7 @@ class XtTdApi(XtQuantTraderCallback):
         if connect_result:
             self.gateway.write_log("交易服务器连接失败")
             return
-        
+
         self.connected = True
         self.gateway.write_log("交易服务器连接成功")
 
@@ -664,7 +665,7 @@ class XtTdApi(XtQuantTraderCallback):
         if subscribe_result:
             self.gateway.write_log("交易服务器订阅失败")
             return
-            
+
         self.gateway.write_log("交易服务器订阅成功")
 
         self.query_account()
@@ -681,7 +682,7 @@ class XtTdApi(XtQuantTraderCallback):
 def generate_datetime(timestamp: int, millisecond=False, adjusted=False) -> datetime:
     """生成本地时间"""
     if millisecond:
-        dt: datetime = datetime.fromtimestamp(timestamp/1000)
+        dt: datetime = datetime.fromtimestamp(timestamp / 1000)
     else:
         dt: datetime = datetime.fromtimestamp(timestamp)
     if adjusted:
