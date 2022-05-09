@@ -362,7 +362,7 @@ class XtTdApi(XtQuantTraderCallback):
 
         self.order_ref: int = 0
 
-        self.localid_sysid_map: Dict[str, str] = {}
+        self.active_localid_sysid_map: Dict[str, str] = {}
 
         self.client: XtQuantTrader = None
         self.acc: StockAccount = None
@@ -420,7 +420,10 @@ class XtTdApi(XtQuantTraderCallback):
                 gateway_name=self.gateway_name
             )
             self.gateway.on_order(order)
-            self.localid_sysid_map[data.order_remark] = data.order_id
+            self.active_localid_sysid_map[data.order_remark] = data.order_id
+
+            if order.status in (Status.CANCELLED, Status.ALLTRADED):
+                self.active_localid_sysid_map.pop(data.order_remark)
 
     def on_query_order_async(self, orders) -> None:
         """委托信息异步查询回报"""
@@ -446,7 +449,10 @@ class XtTdApi(XtQuantTraderCallback):
                     gateway_name=self.gateway_name
                 )
                 self.gateway.on_order(order)
-                self.localid_sysid_map[order.orderid] = d.order_id          #str
+                self.active_localid_sysid_map[order.orderid] = d.order_id         #str
+
+                if order.status in (Status.CANCELLED, Status.ALLTRADED):
+                    self.active_localid_sysid_map.pop(order.orderid)
 
     def on_query_asset_async(self, asset) -> None:
         """资金信息异步查询回报"""
@@ -605,7 +611,7 @@ class XtTdApi(XtQuantTraderCallback):
 
     def cancel_order(self, req: CancelRequest) -> None:
         """委托撤单"""
-        sysid: str = self.localid_sysid_map.get(req.orderid, None)
+        sysid: str = self.active_localid_sysid_map.get(req.orderid, None)
         if not sysid:
             self.gateway.write_log("撤单失败，找不到委托号")
             return
