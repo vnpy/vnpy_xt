@@ -315,6 +315,9 @@ class XtMdApi:
         for t in time_list:
             if req.interval == Interval.DAILY:
                 dt: datetime = generate_datetime(t, True)
+                incomplete_bar: bool = dt.date() == datetime.now().date() and datetime.now().time() < time(hour=15)
+                if incomplete_bar and t == time_list[-1]:
+                        continue
             else:
                 dt: datetime = generate_datetime(t, True, True)
                 if dt.time() < time(hour=9, minute=30):
