@@ -1,10 +1,17 @@
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta, time
 from typing import Dict, Tuple, List
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
 from xtquant import xtconstant
-from xtquant.xtdata import subscribe_whole_quote, subscribe_quote, get_full_tick, get_instrument_detail
+from xtquant.xtdata import (
+    subscribe_whole_quote,
+    subscribe_quote,
+    get_full_tick,
+    get_instrument_detail,
+    get_local_data,
+    download_history_data
+)
 
 from vnpy.event import EventEngine, EVENT_TIMER
 from vnpy.trader.gateway import BaseGateway
@@ -17,14 +24,17 @@ from vnpy.trader.object import (
     CancelRequest,
     SubscribeRequest,
     ContractData,
-    TickData
+    TickData,
+    BarData,
+    HistoryRequest
 )
 from vnpy.trader.constant import (
     OrderType,
     Direction,
     Exchange,
     Status,
-    Product
+    Product,
+    Interval
 )
 
 
@@ -67,6 +77,13 @@ EXCHANGE_XT2VT: Dict[str, Exchange] = {
     "SZ": Exchange.SZSE,
 }
 EXCHANGE_VT2XT: Dict[Exchange, str] = {v: k for k, v in EXCHANGE_XT2VT.items()}
+
+# 数据频率映射
+INTERVAL_VT2XT = {
+    Interval.MINUTE: "1m",
+    Interval.DAILY: "1d",
+}
+
 
 # 其他常量
 CHINA_TZ = pytz.timezone("Asia/Shanghai")       # 中国时区
@@ -128,9 +145,13 @@ class XtGateway(BaseGateway):
         """查询持仓"""
         self.td_api.query_position()
 
+    def query_history(self, req: HistoryRequest):
+        """查询历史数据"""
+        return self.md_api.query_history(req)
+
     def on_order(self, order: OrderData) -> None:
         """推送委托数据"""
-        self.orders[order.orderid] = order  # 先做一次缓存
+        self.orders[order.orderid] = order
         super().on_order(order)
 
     def get_order(self, orderid: str) -> OrderData:
@@ -242,11 +263,14 @@ class XtMdApi:
                         product=Product.EQUITY,
                         size=1,
                         pricetick=data["PriceTick"],
+                        history_data=True,
                         gateway_name=self.gateway_name
                     )
+
                     if d.startswith(('159','51')):
                         contract.product = Product.FUND
                     symbol_contract_map[symbol] = contract
+
                     self.gateway.on_contract(contract)
             self.gateway.write_log("合约信息查询成功")
 
@@ -262,6 +286,65 @@ class XtMdApi:
         if req.symbol not in self.subscribed:
             subscribe_quote(stock_code=symbol, period='tick', callback=self.onmarketdata)
             self.subscribed.add(req.symbol)
+
+    def query_history(self, req: HistoryRequest) -> List[BarData]:
+        """"""
+        if req.symbol not in symbol_contract_map:
+            self.gateway.write_log(f"获取K线数据失败，找不到{req.vt_symbol}合约")
+            return []
+
+        interval: str = INTERVAL_VT2XT.get(req.interval, None)
+        if interval is None:
+            self.gateway.write_log(f"获取K线数据失败，XT接口暂不提供{req.interval.value}级别历史数据")
+            return []
+
+        history: list[BarData] = []
+
+        symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+        start: str = req.start.strftime("%Y%m%d%H%M%S")
+        end: str = req.end.strftime("%Y%m%d%H%M%S")
+
+        download_history_data(symbol, interval, start, end)
+        data: dict = get_local_data([], [symbol], interval, start, end)
+
+        if data["time"].empty:
+            return[]
+
+        time_list: list = data["time"].columns.tolist()
+
+        for t in time_list:
+            if req.interval == Interval.DAILY:
+                dt: datetime = generate_datetime(t, True)
+                incomplete_bar: bool = dt.date() == datetime.now().date() and datetime.now().time() < time(hour=15)
+                if incomplete_bar and t == time_list[-1]:
+                        continue
+            else:
+                dt: datetime = generate_datetime(t, True, True)
+                if dt.time() < time(hour=9, minute=30):
+                    continue
+
+            bar: BarData = BarData(
+                symbol=req.symbol,
+                exchange=req.exchange,
+                datetime=dt,
+                interval=req.interval,
+                volume=float(data["volume"][t]),
+                turnover=float(data["amount"][t]),
+                open_interest=float(data["openInterest"][t]),
+                open_price=float(data["open"][t]),
+                high_price=float(data["high"][t]),
+                low_price=float(data["low"][t]),
+                close_price=float(data["close"][t]),
+                gateway_name=self.gateway_name
+            )
+            history.append(bar)
+
+        # 输出日志信息
+        if history:
+            msg: str = f"获取历史数据成功，{req.vt_symbol} - {req.interval.value}，{history[0].datetime} - {history[-1].datetime}"
+            self.gateway.write_log(msg)
+
+        return history
 
     def close(self) -> None:
         """关闭连接"""
@@ -282,7 +365,7 @@ class XtTdApi(XtQuantTraderCallback):
 
         self.order_ref: int = 0
 
-        self.localid_sysid_map: Dict[str, str] = {}
+        self.active_localid_sysid_map: Dict[str, str] = {}
 
         self.client: XtQuantTrader = None
         self.acc: StockAccount = None
@@ -340,7 +423,10 @@ class XtTdApi(XtQuantTraderCallback):
                 gateway_name=self.gateway_name
             )
             self.gateway.on_order(order)
-            self.localid_sysid_map[data.order_remark] = data.order_id
+            self.active_localid_sysid_map[data.order_remark] = data.order_id
+
+            if order.status in (Status.CANCELLED, Status.ALLTRADED):
+                self.active_localid_sysid_map.pop(data.order_remark)
 
     def on_query_order_async(self, orders) -> None:
         """委托信息异步查询回报"""
@@ -350,6 +436,7 @@ class XtTdApi(XtQuantTraderCallback):
         for d in orders:
             symbol, exchange = (d.stock_code).split(".")
             type: OrderType = ORDERTYPE_XT2VT.get(d.price_type, None)
+
             if d.order_remark and type:
                 order: OrderData = OrderData(
                     symbol=symbol,
@@ -365,7 +452,10 @@ class XtTdApi(XtQuantTraderCallback):
                     gateway_name=self.gateway_name
                 )
                 self.gateway.on_order(order)
-                self.localid_sysid_map[order.orderid] = d.order_id          #str
+                self.active_localid_sysid_map[order.orderid] = d.order_id         #str
+
+                if order.status in (Status.CANCELLED, Status.ALLTRADED):
+                    self.active_localid_sysid_map.pop(order.orderid)
 
     def on_query_asset_async(self, asset) -> None:
         """资金信息异步查询回报"""
@@ -524,7 +614,7 @@ class XtTdApi(XtQuantTraderCallback):
 
     def cancel_order(self, req: CancelRequest) -> None:
         """委托撤单"""
-        sysid: str = self.localid_sysid_map.get(req.orderid, None)
+        sysid: str = self.active_localid_sysid_map.get(req.orderid, None)
         if not sysid:
             self.gateway.write_log("撤单失败，找不到委托号")
             return
@@ -588,11 +678,13 @@ class XtTdApi(XtQuantTraderCallback):
             self.client.stop()
 
 
-def generate_datetime(timestamp: int, millisecond=False) -> datetime:
+def generate_datetime(timestamp: int, millisecond=False, adjusted=False) -> datetime:
     """生成本地时间"""
     if millisecond:
         dt: datetime = datetime.fromtimestamp(timestamp/1000)
     else:
         dt: datetime = datetime.fromtimestamp(timestamp)
+    if adjusted:
+        dt: datetime = dt - timedelta(minutes=1)
     dt: datetime = CHINA_TZ.localize(dt)
     return dt
