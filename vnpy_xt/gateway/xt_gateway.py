@@ -5,7 +5,17 @@ from typing import Dict, Tuple, List
 from pandas import DataFrame
 from xtquant import xtconstant
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
-from xtquant.xttype import StockAccount, XtOrder
+from xtquant.xttype import (
+    StockAccount,
+    XtAsset,
+    XtOrder,
+    XtPosition,
+    XtTrade,
+    XtOrderResponse,
+    XtCancelOrderResponse,
+    XtOrderError,
+    XtCancelError
+)
 from xtquant.xtdata import (
     subscribe_quote,
     get_full_tick,
@@ -273,7 +283,7 @@ class XtMdApi:
             symbol_contract_map[contract.vt_symbol] = contract
             self.gateway.on_contract(contract)
 
-        self.gateway.write_log("合约信息查询成功")            
+        self.gateway.write_log("合约信息查询成功")
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
@@ -306,14 +316,14 @@ class XtMdApi:
 
         download_history_data(xt_symbol, period, start, end)
         data: dict = get_local_data([], [xt_symbol], period, start, end)
-        
+
         # 解析为DataFrame结构
         for field, df in list(data.items()):
             data[field] = df.transpose()[xt_symbol]
         df: DataFrame = DataFrame(data)
 
         if df.empty:
-            return history        
+            return history
 
         # 遍历解析
         for tp in df.itertuples():
@@ -321,7 +331,7 @@ class XtMdApi:
             if req.interval == Interval.DAILY:
                 dt: datetime = generate_datetime(tp.time, True)
                 incomplete_bar: bool = (
-                    dt.date() == datetime.now().date() 
+                    dt.date() == datetime.now().date()
                     and datetime.now().time() < time(hour=15)
                 )
                 if incomplete_bar:
@@ -373,7 +383,7 @@ class XtTdApi(XtQuantTraderCallback):
         self.inited: bool = False
         self.connected: bool = False
 
-        self.order_ref: int = 0
+        self.order_count: int = 0
 
         self.active_localid_sysid_map: Dict[str, str] = {}
 
@@ -408,166 +418,143 @@ class XtTdApi(XtQuantTraderCallback):
         else:
             self.gateway.write_log("交易接口重连成功")
 
-    def on_stock_order(self, data: XtOrder) -> None:
+    def on_stock_order(self, xt_order: XtOrder) -> None:
         """委托回报推送"""
         # 过滤非VeighNa Trader发出的委托
-        if not data.order_remark:
+        if not xt_order.order_remark:
             return
 
         # 过滤不支持的委托类型
-        type: OrderType = ORDERTYPE_XT2VT.get(data.price_type, None)
+        type: OrderType = ORDERTYPE_XT2VT.get(xt_order.price_type, None)
         if not type:
             return
 
-        symbol, xt_exchange = data.stock_code.split(".")
+        symbol, xt_exchange = xt_order.stock_code.split(".")
 
         order: OrderData = OrderData(
             symbol=symbol,
             exchange=EXCHANGE_XT2VT[xt_exchange],
-            orderid=data.order_remark,
-            direction=DIRECTION_XT2VT[data.order_type],
+            orderid=xt_order.order_remark,
+            direction=DIRECTION_XT2VT[xt_order.order_type],
             type=type,                  # 目前测出来与文档不同，限价返回50，市价返回88
-            price=data.price,
-            volume=data.order_volume,
-            traded=data.traded_volume,
-            status=STATUS_XT2VT.get(data.order_status, Status.SUBMITTING),
-            datetime=generate_datetime(data.order_time),
+            price=xt_order.price,
+            volume=xt_order.order_volume,
+            traded=xt_order.traded_volume,
+            status=STATUS_XT2VT.get(xt_order.order_status, Status.SUBMITTING),
+            datetime=generate_datetime(xt_order.order_time),
             gateway_name=self.gateway_name
         )
 
         if order.is_active():
-            self.active_localid_sysid_map[data.order_remark] = data.order_id
+            self.active_localid_sysid_map[xt_order.order_remark] = xt_order.order_id
         else:
-            self.active_localid_sysid_map.pop(data.order_remark, None)
+            self.active_localid_sysid_map.pop(xt_order.order_remark, None)
 
         self.gateway.on_order(order)
 
-    def on_query_order_async(self, orders: List[XtOrder]) -> None:
+    def on_query_order_async(self, xt_orders: List[XtOrder]) -> None:
         """委托信息异步查询回报"""
-        if not orders:
+        if not xt_orders:
             return
 
-        for data in orders:
+        for data in xt_orders:
             self.on_stock_order(data)
 
-    def on_query_asset_async(self, asset) -> None:
+    def on_query_asset_async(self, xt_asset: XtAsset) -> None:
         """资金信息异步查询回报"""
-        if not asset:
+        if not xt_asset:
             return
 
         account: AccountData = AccountData(
-            accountid=asset.account_id,
-            balance=asset.total_asset,
-            frozen=asset.frozen_cash,
+            accountid=xt_asset.account_id,
+            balance=xt_asset.total_xt_asset,
+            frozen=xt_asset.frozen_cash,
             gateway_name=self.gateway_name
         )
-        account.available = asset.cash
+        account.available = xt_asset.cash
+
         self.gateway.on_account(account)
 
-    def on_stock_trade(self, data) -> None:
-        """
-        成交变动推送
-        :param trade: XtTrade对象
-        :return:
-        """
-        if data.order_remark:
-            symbol, exchange = (data.stock_code).split(".")
-            trade: TradeData = TradeData(
+    def on_stock_trade(self, xt_trade: XtTrade) -> None:
+        """成交变动推送"""
+        if not xt_trade.order_remark:
+            return
+
+        symbol, xt_exchange = xt_trade.stock_code.split(".")
+
+        trade: TradeData = TradeData(
+            symbol=symbol,
+            exchange=EXCHANGE_XT2VT[xt_exchange],
+            orderid=xt_trade.order_remark,
+            tradeid=xt_trade.traded_id,
+            direction=DIRECTION_XT2VT[xt_trade.order_type],
+            price=xt_trade.traded_price,
+            volume=xt_trade.traded_volume,
+            datetime=generate_datetime(xt_trade.traded_time),
+            gateway_name=self.gateway_name
+        )
+
+        self.gateway.on_trade(trade)
+
+    def on_query_trades_async(self, xt_trades: List[XtTrade]) -> None:
+        """成交信息异步查询回报"""
+        if not xt_trades:
+            return
+
+        for xt_trade in xt_trades:
+            self.on_stock_trade(xt_trade)
+
+    def on_query_positions_async(self, xt_positions: List[XtPosition]) -> None:
+        """持仓信息异步查询回报"""
+        if not xt_positions:
+            return
+
+        for xt_position in xt_positions:
+            if not xt_position.market_value:
+                continue
+
+            symbol, xt_exchange = xt_position.stock_code.split(".")
+
+            position: PositionData = PositionData(
                 symbol=symbol,
-                exchange=EXCHANGE_XT2VT[exchange],
-                orderid=data.order_remark,
-                tradeid=data.traded_id,
-                direction=DIRECTION_XT2VT[data.order_type],
-                price=data.traded_price,
-                volume=data.traded_volume,
-                datetime=generate_datetime(data.traded_time),
+                exchange=EXCHANGE_XT2VT[xt_exchange],
+                direction=Direction.NET,
+                volume=xt_position.volume,
+                yd_volume=xt_position.can_use_volume,
+                frozen=xt_position.volume - xt_position.can_use_volume,
+                price=xt_position.open_price,
                 gateway_name=self.gateway_name
             )
-            self.gateway.on_trade(trade)
 
-    def on_query_trades_async(self, trades) -> None:
-        """成交信息异步查询回报"""
-        if not trades:
-            return
+            self.gateway.on_position(position)
 
-        for d in trades:
-            if d.order_remark:
-                symbol, exchange = d.stock_code.split(".")
-                trade: TradeData = TradeData(
-                    symbol=symbol,
-                    exchange=EXCHANGE_XT2VT[exchange],
-                    orderid=d.order_remark,
-                    tradeid=d.traded_id,
-                    direction=DIRECTION_XT2VT[d.order_type],
-                    price=d.traded_price,
-                    volume=d.traded_volume,
-                    datetime=generate_datetime(d.traded_time),
-                    gateway_name=self.gateway_name
-                )
-                self.gateway.on_trade(trade)
-
-    def on_query_positions_async(self, positions) -> None:
-        """持仓信息异步查询回报"""
-        if not positions:
-            return
-
-        for d in positions:
-            if d.market_value:
-                symbol, exchange = d.stock_code.split(".")
-                position: PositionData = PositionData(
-                    symbol=symbol,
-                    exchange=EXCHANGE_XT2VT[exchange],
-                    direction=Direction.NET,
-                    volume=d.volume,
-                    yd_volume=d.can_use_volume,
-                    frozen=d.volume - d.can_use_volume,
-                    price=d.open_price,
-                    gateway_name=self.gateway_name
-                )
-                self.gateway.on_position(position)
-
-    def on_order_error(self, error) -> None:
-        """
-        委托失败推送
-        :param order_error:XtOrderError 对象
-        :return:
-        """
-        order: OrderData = self.gateway.get_order(error.order_remark)
+    def on_order_error(self, xt_error: XtOrderError) -> None:
+        """委托失败推送"""
+        order: OrderData = self.gateway.get_order(xt_error.order_remark)
         if order:
             order.status = Status.REJECTED
             self.gateway.on_order(order)
 
-        self.gateway.write_log(f"交易委托失败, 错误代码{error.error_id}, 错误信息{error.error_msg}")
+        self.gateway.write_log(f"交易委托失败, 错误代码{xt_error.error_id}, 错误信息{xt_error.error_msg}")
 
-    def on_cancel_error(self, error) -> None:
-        """
-        撤单失败推送
-        :param cancel_error: XtCancelError 对象
-        :return:
-        """
-        self.gateway.write_log(f"交易撤单失败, 错误代码{error.error_id}, 错误信息{error.error_msg}")
+    def on_cancel_error(self, xt_error: XtCancelError) -> None:
+        """撤单失败推送"""
+        self.gateway.write_log(f"交易撤单失败, 错误代码{xt_error.error_id}, 错误信息{xt_error.error_msg}")
 
-    def on_order_stock_async_response(self, response) -> None:
-        """
-        异步下单回报推送
-        :param response: XtOrderResponse 对象
-        :return:
-        """
+    def on_order_stock_async_response(self, response: XtOrderResponse) -> None:
+        """异步下单回报推送"""
         pass
 
-    def on_cancel_order_stock_async_response(self, response) -> None:
-        """
-        :param response: XtCancelOrderResponse 对象
-        :return:
-        """
+    def on_cancel_order_stock_async_response(self, response: XtCancelOrderResponse) -> None:
+        """异步撤单回报推送"""
         pass
 
     def new_orderid(self) -> str:
         """生成本地委托号"""
         prefix: str = datetime.now().strftime("1%m%d%H%M%S")
 
-        self.order_ref += 1
-        suffix: str = str(self.order_ref).rjust(6, "0")
+        self.order_count += 1
+        suffix: str = str(self.order_count).rjust(6, "0")
 
         orderid: str = prefix + suffix
         return orderid
@@ -576,28 +563,25 @@ class XtTdApi(XtQuantTraderCallback):
         """委托下单"""
         contract: ContractData = symbol_contract_map.get(req.vt_symbol, None)
         if not contract:
-            self.gateway.write_log(f"找不到该合约{req.symbol}")
+            self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
             return ""
 
-        if not req.price:
-            self.gateway.write_log("请检查委托价格")
-            return ""
-
-        if req.type not in [OrderType.LIMIT, OrderType.MARKET]:
+        if req.type not in {OrderType.LIMIT, OrderType.MARKET}:
             self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
             return ""
 
         stock_code: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
         orderid: str = self.new_orderid()
+
         self.xt_client.order_stock_async(
-            self.xt_account,
-            stock_code,
-            DIRECTION_VT2XT[req.direction],
-            int(req.volume),
-            ORDERTYPE_VT2XT[(req.exchange, req.type)],
-            req.price,
-            "",
-            orderid
+            account=self.xt_account,
+            stock_code=stock_code,
+            order_type=DIRECTION_VT2XT[req.direction],
+            order_volume=int(req.volume),
+            price_type=ORDERTYPE_VT2XT[(req.exchange, req.type)],
+            price=req.price,
+            strategy_name=req.reference,
+            order_remark=orderid
         )
 
         order: OrderData = req.create_order_data(orderid, self.gateway_name)
