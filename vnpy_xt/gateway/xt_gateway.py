@@ -190,34 +190,38 @@ class XtMdApi:
         self.inited: bool = False
         self.subscribed: set = set()
 
-    def onMarketData(self, datas: dict) -> None:
+    def onMarketData(self, data: dict) -> None:
         """行情推送回调"""
-        k: str = next(iter(datas.keys()))
-        d: dict = next(iter(datas.values()))[0]
+        for xt_symbol, buf in data.items():
+            for d in buf:
+                xt_symbol: str = next(iter(data.keys()))
+                symbol, xt_exchange = xt_symbol.split(".")
+                exchange = EXCHANGE_XT2VT[xt_exchange]
 
-        symbol, exchange = k.split(".")
-        tick: TickData = TickData(
-            symbol=symbol,
-            exchange=symbol_contract_map[symbol].exchange,
-            name=symbol_contract_map[symbol].name,
-            datetime=generate_datetime(d["time"], True),
-            volume=d["volume"],
-            turnover=d["amount"],
-            open_interest=d["openInt"],
-            last_price=d["lastPrice"],
-            open_price=d["open"],
-            high_price=d["high"],
-            low_price=d["low"],
-            pre_close=d["lastClose"],
-            gateway_name=self.gateway_name
-        )
+                tick: TickData = TickData(
+                    symbol=symbol,
+                    exchange=exchange,
+                    datetime=generate_datetime(d["time"], True),
+                    volume=d["volume"],
+                    turnover=d["amount"],
+                    open_interest=d["openInt"],
+                    last_price=d["lastPrice"],
+                    open_price=d["open"],
+                    high_price=d["high"],
+                    low_price=d["low"],
+                    pre_close=d["lastClose"],
+                    gateway_name=self.gateway_name
+                )
 
-        tick.bid_price_1, tick.bid_price_2, tick.bid_price_3, tick.bid_price_4, tick.bid_price_5 = d["bidPrice"]
-        tick.ask_price_1, tick.ask_price_2, tick.ask_price_3, tick.ask_price_4, tick.ask_price_5 = d["askPrice"]
-        tick.bid_volume_1, tick.bid_volume_2, tick.bid_volume_3, tick.bid_volume_4, tick.bid_volume_5 = d["bidVol"]
-        tick.ask_volume_1, tick.ask_volume_2, tick.ask_volume_3, tick.ask_volume_4, tick.ask_volume_5 = d["askVol"]
+                contract = symbol_contract_map[tick.vt_symbol]
+                tick.name = contract.name
 
-        self.gateway.on_tick(tick)
+                tick.bid_price_1, tick.bid_price_2, tick.bid_price_3, tick.bid_price_4, tick.bid_price_5 = d["bidPrice"]
+                tick.ask_price_1, tick.ask_price_2, tick.ask_price_3, tick.ask_price_4, tick.ask_price_5 = d["askPrice"]
+                tick.bid_volume_1, tick.bid_volume_2, tick.bid_volume_3, tick.bid_volume_4, tick.bid_volume_5 = d["bidVol"]
+                tick.ask_volume_1, tick.ask_volume_2, tick.ask_volume_3, tick.ask_volume_4, tick.ask_volume_5 = d["askVol"]
+
+                self.gateway.on_tick(tick)
 
     def connect(self) -> None:
         """连接服务器"""
@@ -265,24 +269,24 @@ class XtMdApi:
                 gateway_name=self.gateway_name
             )
 
-            symbol_contract_map[symbol] = contract
+            symbol_contract_map[contract.vt_symbol] = contract
             self.gateway.on_contract(contract)
 
         self.gateway.write_log("合约信息查询成功")            
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
-        if req.symbol not in symbol_contract_map:
+        if req.vt_symbol not in symbol_contract_map:
             return
 
-        symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
-        if req.symbol not in self.subscribed:
-            subscribe_quote(stock_code=symbol, period="tick", callback=self.onMarketData)
-            self.subscribed.add(req.symbol)
+        xt_symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+        if xt_symbol not in self.subscribed:
+            subscribe_quote(stock_code=xt_symbol, period="tick", callback=self.onMarketData)
+            self.subscribed.add(xt_symbol)
 
     def query_history(self, req: HistoryRequest) -> List[BarData]:
         """"""
-        if req.symbol not in symbol_contract_map:
+        if req.vt_symbol not in symbol_contract_map:
             self.gateway.write_log(f"获取K线数据失败，找不到{req.vt_symbol}合约")
             return []
 
@@ -574,7 +578,7 @@ class XtTdApi(XtQuantTraderCallback):
 
     def send_order(self, req: OrderRequest) -> str:
         """委托下单"""
-        contract: ContractData = symbol_contract_map.get(req.symbol, None)
+        contract: ContractData = symbol_contract_map.get(req.vt_symbol, None)
         if not contract:
             self.gateway.write_log(f"找不到该合约{req.symbol}")
             return ""
