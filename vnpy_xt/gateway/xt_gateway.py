@@ -2,6 +2,7 @@ import pytz
 from datetime import datetime, timedelta, time
 from typing import Dict, Tuple, List
 
+from pandas import DataFrame
 from xtquant import xtconstant
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
@@ -285,38 +286,49 @@ class XtMdApi:
             self.subscribed.add(xt_symbol)
 
     def query_history(self, req: HistoryRequest) -> List[BarData]:
-        """"""
-        if req.vt_symbol not in symbol_contract_map:
-            self.gateway.write_log(f"获取K线数据失败，找不到{req.vt_symbol}合约")
-            return []
-
-        interval: str = INTERVAL_VT2XT.get(req.interval, None)
-        if interval is None:
-            self.gateway.write_log(f"获取K线数据失败，XT接口暂不提供{req.interval.value}级别历史数据")
-            return []
-
+        """查询K线历史"""
         history: list[BarData] = []
 
-        symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+        # 检查是否支持该数据
+        if req.vt_symbol not in symbol_contract_map:
+            self.gateway.write_log(f"获取K线数据失败，找不到{req.vt_symbol}合约")
+            return history
+
+        period: str = INTERVAL_VT2XT.get(req.interval, None)
+        if period is None:
+            self.gateway.write_log(f"获取K线数据失败，接口暂不提供{req.interval.value}级别历史数据")
+            return history
+
+        # 从服务器下载获取
+        xt_symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
         start: str = req.start.strftime("%Y%m%d%H%M%S")
         end: str = req.end.strftime("%Y%m%d%H%M%S")
 
-        download_history_data(symbol, interval, start, end)
-        data: dict = get_local_data([], [symbol], interval, start, end)
+        download_history_data(xt_symbol, period, start, end)
+        data: dict = get_local_data([], [xt_symbol], period, start, end)
+        
+        # 解析为DataFrame结构
+        for field, df in list(data.items()):
+            data[field] = df.transpose()[xt_symbol]
+        df: DataFrame = DataFrame(data)
 
-        if data["time"].empty:
-            return[]
+        if df.empty:
+            return history        
 
-        time_list: list = data["time"].columns.tolist()
-
-        for t in time_list:
+        # 遍历解析
+        for tp in df.itertuples():
+            # 日线过滤尚未走完的当日数据
             if req.interval == Interval.DAILY:
-                dt: datetime = generate_datetime(t, True)
-                incomplete_bar: bool = dt.date() == datetime.now().date() and datetime.now().time() < time(hour=15)
-                if incomplete_bar and t == time_list[-1]:
+                dt: datetime = generate_datetime(tp.time, True)
+                incomplete_bar: bool = (
+                    dt.date() == datetime.now().date() 
+                    and datetime.now().time() < time(hour=15)
+                )
+                if incomplete_bar:
                     continue
+            # 分钟线过滤开盘脏前数据
             else:
-                dt: datetime = generate_datetime(t, True, True)
+                dt: datetime = generate_datetime(tp.time, True, True)
                 if dt.time() < time(hour=9, minute=30):
                     continue
 
@@ -325,13 +337,13 @@ class XtMdApi:
                 exchange=req.exchange,
                 datetime=dt,
                 interval=req.interval,
-                volume=float(data["volume"][t]),
-                turnover=float(data["amount"][t]),
-                open_interest=float(data["openInterest"][t]),
-                open_price=float(data["open"][t]),
-                high_price=float(data["high"][t]),
-                low_price=float(data["low"][t]),
-                close_price=float(data["close"][t]),
+                volume=float(tp.volume),
+                turnover=float(tp.amount),
+                open_interest=float(tp.openInterest),
+                open_price=float(tp.open),
+                high_price=float(tp.high),
+                low_price=float(tp.low),
+                close_price=float(tp.close),
                 gateway_name=self.gateway_name
             )
             history.append(bar)
