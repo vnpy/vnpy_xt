@@ -1,4 +1,4 @@
-# VeighNa框架的迅投QMT Mini交易接口
+# VeighNa框架的迅投MiniQMT交易接口
 
 <p align="center">
   <img src ="https://vnpy.oss-cn-shanghai.aliyuncs.com/vnpy-logo.png"/>
@@ -13,7 +13,10 @@
 
 ## 说明
 
-基于迅投MiniQMT的接口封装开发的QMT极速策略交易接口。
+基于迅投MiniQMT客户端API（XtQuant）封装开发的证券交易接口，其中具体模块的版本为：
+
+* XtTrader：v1.0.6 - 2021-7-20
+* XtData：v1.0.7 - 2021-12-30
 
 ## 安装
 
