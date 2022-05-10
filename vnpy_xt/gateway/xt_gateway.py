@@ -6,7 +6,6 @@ from xtquant import xtconstant
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
 from xtquant.xtdata import (
-    # subscribe_whole_quote,
     subscribe_quote,
     get_full_tick,
     get_instrument_detail,
@@ -85,7 +84,6 @@ INTERVAL_VT2XT = {
     Interval.DAILY: "1d",
 }
 
-
 # 其他常量
 CHINA_TZ = pytz.timezone("Asia/Shanghai")       # 中国时区
 
@@ -95,7 +93,7 @@ symbol_contract_map: Dict[str, ContractData] = {}
 
 class XtGateway(BaseGateway):
     """
-    VeighNa用于对接迅投XT的交易接口。
+    VeighNa用于对接迅投QMT Mini的交易接口。
     """
 
     default_name: str = "XT"
@@ -182,11 +180,10 @@ class XtGateway(BaseGateway):
 
 
 class XtMdApi:
+    """行情API"""
 
-    def __init__(self, gateway: XtGateway):
+    def __init__(self, gateway: XtGateway) -> None:
         """构造函数"""
-        super().__init__()
-
         self.gateway: XtGateway = gateway
         self.gateway_name: str = gateway.gateway_name
 
@@ -194,35 +191,10 @@ class XtMdApi:
         self.subscribed: set = set()
 
     def onMarketData(self, datas: dict) -> None:
-        """订阅行情回报"""
-        for k, d in datas.items():
-            symbol, exchange = k.split(".")
-            if symbol in self.subscribed:
-                tick: TickData = TickData(
-                    symbol=symbol,
-                    exchange=symbol_contract_map[symbol].exchange,
-                    name=symbol_contract_map[symbol].name,
-                    datetime=generate_datetime(d["time"], True),
-                    volume=d["volume"],
-                    turnover=d["amount"],
-                    open_interest=d["openInt"],
-                    last_price=d["lastPrice"],
-                    open_price=d["open"],
-                    high_price=d["high"],
-                    low_price=d["low"],
-                    pre_close=d["lastClose"],
-                    gateway_name=self.gateway_name
-                )
-                tick.bid_price_1, tick.bid_price_2, tick.bid_price_3, tick.bid_price_4, tick.bid_price_5 = d["bidPrice"]
-                tick.ask_price_1, tick.ask_price_2, tick.ask_price_3, tick.ask_price_4, tick.ask_price_5 = d["askPrice"]
-                tick.bid_volume_1, tick.bid_volume_2, tick.bid_volume_3, tick.bid_volume_4, tick.bid_volume_5 = d["bidVol"]
-                tick.ask_volume_1, tick.ask_volume_2, tick.ask_volume_3, tick.ask_volume_4, tick.ask_volume_5 = d["askVol"]
-                self.gateway.on_tick(tick)
-
-    def onmarketdata(self, datas: dict) -> None:
-        """订阅行情回报"""
+        """行情推送回调"""
         k: str = next(iter(datas.keys()))
         d: dict = next(iter(datas.values()))[0]
+
         symbol, exchange = k.split(".")
         tick: TickData = TickData(
             symbol=symbol,
@@ -239,44 +211,64 @@ class XtMdApi:
             pre_close=d["lastClose"],
             gateway_name=self.gateway_name
         )
+
         tick.bid_price_1, tick.bid_price_2, tick.bid_price_3, tick.bid_price_4, tick.bid_price_5 = d["bidPrice"]
         tick.ask_price_1, tick.ask_price_2, tick.ask_price_3, tick.ask_price_4, tick.ask_price_5 = d["askPrice"]
         tick.bid_volume_1, tick.bid_volume_2, tick.bid_volume_3, tick.bid_volume_4, tick.bid_volume_5 = d["bidVol"]
         tick.ask_volume_1, tick.ask_volume_2, tick.ask_volume_3, tick.ask_volume_4, tick.ask_volume_5 = d["askVol"]
+
         self.gateway.on_tick(tick)
 
     def connect(self) -> None:
         """连接服务器"""
-        if not self.inited:
-            self.inited = True
-            # subscribe_whole_quote(['SH', 'SZ'], callback=self.onMarketData)  全市场订阅
-
-            datas: list = list(get_full_tick(['SH', 'SZ']).keys())
-            for d in datas:
-                SZ_stock = d.startswith('00') and d.endswith('SZ')
-                if d.startswith(('159', '51', '60', '68')) or SZ_stock:
-                    symbol, exchange = d.split(".")
-                    data: dict = get_instrument_detail(d)
-                    contract: ContractData = ContractData(
-                        symbol=symbol,
-                        exchange=EXCHANGE_XT2VT[exchange],
-                        name=data["InstrumentName"],
-                        product=Product.EQUITY,
-                        size=1,
-                        pricetick=data["PriceTick"],
-                        history_data=True,
-                        gateway_name=self.gateway_name
-                    )
-
-                    if d.startswith(('159', '51')):
-                        contract.product = Product.FUND
-                    symbol_contract_map[symbol] = contract
-
-                    self.gateway.on_contract(contract)
-            self.gateway.write_log("合约信息查询成功")
-
-        else:
+        if self.inited:
             self.gateway.write_log("行情API已经初始化，请勿重复操作")
+            return
+        self.inited = True
+
+        self.query_contracts()
+
+    def query_contracts(self) -> None:
+        """查询合约信息"""
+        xt_symbols: list[str] = list(get_full_tick(["SH", "SZ"]).keys())
+
+        for xt_symbol in xt_symbols:
+            # 筛选需要的合约
+            product = None
+
+            if xt_symbol.endswith("SZ"):
+                if xt_symbol.startswith("00"):
+                    product = Product.EQUITY
+                elif xt_symbol.startswith("159"):
+                    product = Product.FUND
+            elif xt_symbol.endswith("SH"):
+                if xt_symbol.startswith(("60", "68")):
+                    product = Product.EQUITY
+                elif xt_symbol.startswith("51"):
+                    product = Product.FUND
+
+            if not product:
+                continue
+
+            # 生成并推送合约信息
+            symbol, xt_exchange = xt_symbol.split(".")
+            data: dict = get_instrument_detail(xt_symbol)
+
+            contract: ContractData = ContractData(
+                symbol=symbol,
+                exchange=EXCHANGE_XT2VT[xt_exchange],
+                name=data["InstrumentName"],
+                product=product,
+                size=1,
+                pricetick=data["PriceTick"],
+                history_data=True,
+                gateway_name=self.gateway_name
+            )
+
+            symbol_contract_map[symbol] = contract
+            self.gateway.on_contract(contract)
+
+        self.gateway.write_log("合约信息查询成功")            
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
@@ -285,7 +277,7 @@ class XtMdApi:
 
         symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
         if req.symbol not in self.subscribed:
-            subscribe_quote(stock_code=symbol, period='tick', callback=self.onmarketdata)
+            subscribe_quote(stock_code=symbol, period="tick", callback=self.onMarketData)
             self.subscribed.add(req.symbol)
 
     def query_history(self, req: HistoryRequest) -> List[BarData]:
