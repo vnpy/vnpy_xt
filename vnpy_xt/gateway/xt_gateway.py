@@ -467,7 +467,7 @@ class XtTdApi(XtQuantTraderCallback):
 
         account: AccountData = AccountData(
             accountid=xt_asset.account_id,
-            balance=xt_asset.total_xt_asset,
+            balance=xt_asset.total_asset,
             frozen=xt_asset.frozen_cash,
             gateway_name=self.gateway_name
         )
