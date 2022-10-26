@@ -1,9 +1,4 @@
-import importlib_metadata
-
-from .gateway import XtGateway
+from .xt_gateway import XtGateway
 
 
-try:
-    __version__ = importlib_metadata.version("vnpy_xt")
-except importlib_metadata.PackageNotFoundError:
-    __version__ = "dev"
+__version__ = "1.0.0"
