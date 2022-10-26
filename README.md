@@ -35,36 +35,6 @@ pip install vnpy_xt
 python setup.py install
 ```
 
-## 使用
-
-以脚本方式启动：
-
-```
-from vnpy.event import EventEngine
-from vnpy.trader.engine import MainEngine
-from vnpy.trader.ui import MainWindow, create_qapp
-
-from vnpy_uf import XtGateway
-
-
-def main():
-    """主入口函数"""
-    qapp = create_qapp()
-
-    event_engine = EventEngine()
-    main_engine = MainEngine(event_engine)
-    main_engine.add_gateway(XtGateway)
-    
-    main_window = MainWindow(main_engine, event_engine)
-    main_window.showMaximized()
-
-    qapp.exec()
-
-
-if __name__ == "__main__":
-    main()
-```
-
 ## 连接
 
 连接前请先登录QMT极速策略交易平台交易终端（点击安装文件夹中bin.x64下的XtMiniQmt.exe启动）。
