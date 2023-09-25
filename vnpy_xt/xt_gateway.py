@@ -74,8 +74,10 @@ DIRECTION_XT2VT: Dict[str, Direction] = {v: k for k, v in DIRECTION_VT2XT.items(
 ORDERTYPE_VT2XT: Dict[Tuple, int] = {
     (Exchange.SSE, OrderType.MARKET): xtconstant.MARKET_SH_CONVERT_5_CANCEL,
     (Exchange.SZSE, OrderType.MARKET): xtconstant.MARKET_SZ_CONVERT_5_CANCEL,
+    (Exchange.BSE, OrderType.MARKET): xtconstant.MARKET_SZ_CONVERT_5_CANCEL,
     (Exchange.SSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
     (Exchange.SZSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
+    (Exchange.BSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
 }
 ORDERTYPE_XT2VT: Dict[int, OrderType] = {
     50: OrderType.LIMIT,
@@ -86,6 +88,7 @@ ORDERTYPE_XT2VT: Dict[int, OrderType] = {
 EXCHANGE_XT2VT: Dict[str, Exchange] = {
     "SH": Exchange.SSE,
     "SZ": Exchange.SZSE,
+    "BJ": Exchange.BSE
 }
 EXCHANGE_VT2XT: Dict[Exchange, str] = {v: k for k, v in EXCHANGE_XT2VT.items()}
 
@@ -245,7 +248,7 @@ class XtMdApi:
 
     def query_contracts(self) -> None:
         """查询合约信息"""
-        xt_symbols: List[str] = list(get_full_tick(["SH", "SZ"]).keys())
+        xt_symbols: List[str] = list(get_full_tick(list(EXCHANGE_XT2VT.keys())))
 
         for xt_symbol in xt_symbols:
             # 筛选需要的合约
@@ -261,6 +264,8 @@ class XtMdApi:
                     product = Product.EQUITY
                 elif xt_symbol.startswith("51"):
                     product = Product.FUND
+            elif xt_symbol.endswith("BJ"):
+                product = Product.EQUITY
 
             if not product:
                 continue
@@ -317,10 +322,7 @@ class XtMdApi:
         download_history_data(xt_symbol, period, start, end)
         data: dict = get_local_data([], [xt_symbol], period, start, end)
 
-        # 解析为DataFrame结构
-        for field, df in list(data.items()):
-            data[field] = df.transpose()[xt_symbol]
-        df: DataFrame = DataFrame(data)
+        df: DataFrame = data[xt_symbol]
 
         if df.empty:
             return history
