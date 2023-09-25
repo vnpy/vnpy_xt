@@ -317,10 +317,7 @@ class XtMdApi:
         download_history_data(xt_symbol, period, start, end)
         data: dict = get_local_data([], [xt_symbol], period, start, end)
 
-        # 解析为DataFrame结构
-        for field, df in list(data.items()):
-            data[field] = df.transpose()[xt_symbol]
-        df: DataFrame = DataFrame(data)
+        df: DataFrame = data[xt_symbol]
 
         if df.empty:
             return history
