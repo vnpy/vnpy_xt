@@ -119,7 +119,6 @@ FUTOFFSET_XT2VT: Dict[int, Offset] = {
 ORDERTYPE_VT2XT: Dict[Tuple, int] = {
     (Exchange.SSE, OrderType.MARKET): MARKET_SH_CONVERT_5_CANCEL,
     (Exchange.SZSE, OrderType.MARKET): MARKET_SZ_CONVERT_5_CANCEL,
-    (Exchange.BSE, OrderType.MARKET): MARKET_SZ_CONVERT_5_CANCEL,
     (Exchange.SSE, OrderType.LIMIT): FIX_PRICE,
     (Exchange.SZSE, OrderType.LIMIT): FIX_PRICE,
     (Exchange.BSE, OrderType.LIMIT): FIX_PRICE,
@@ -768,7 +767,7 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
             return ""
 
-        if self.gateway.stock_trading:
+        if self.gateway.stock_trading and req.exchange in (Exchange.SSE, Exchange.SZSE):
             ordertype: int = ORDERTYPE_VT2XT[(req.exchange, req.type)]
         elif req.type == OrderType.LIMIT:
             ordertype = FIX_PRICE
