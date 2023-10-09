@@ -17,10 +17,10 @@ from xtquant.xttype import (
 )
 from xtquant.xtdata import (
     subscribe_quote,
-    get_full_tick,
     get_instrument_detail,
     get_local_data,
-    download_history_data
+    download_history_data,
+    get_stock_list_in_sector
 )
 
 from vnpy.event import EventEngine, EVENT_TIMER
@@ -36,7 +36,8 @@ from vnpy.trader.object import (
     ContractData,
     TickData,
     BarData,
-    HistoryRequest
+    HistoryRequest,
+    OptionType,
 )
 from vnpy.trader.constant import (
     OrderType,
@@ -91,11 +92,25 @@ EXCHANGE_XT2VT: Dict[str, Exchange] = {
     "BJ": Exchange.BSE
 }
 EXCHANGE_VT2XT: Dict[Exchange, str] = {v: k for k, v in EXCHANGE_XT2VT.items()}
+MDEXCHANGE_XT2XT: Dict[str, str] = {
+    "CFFEX": "IF",
+    "SHFE": "SF",
+    "INE": "INE",
+    "DCE": "DF",
+    "CZCE": "ZF",
+    "GFEX": "GF"
+}
 
 # 数据频率映射
 INTERVAL_VT2XT = {
     Interval.MINUTE: "1m",
     Interval.DAILY: "1d",
+}
+
+# 期权类型映射
+OPTIONTYPE_XT2VT: Dict[str, OptionType] = {
+    "C": OptionType.CALL,
+    "P": OptionType.PUT,
 }
 
 # 其他常量
@@ -248,30 +263,43 @@ class XtMdApi:
 
     def query_contracts(self) -> None:
         """查询合约信息"""
-        xt_symbols: List[str] = list(get_full_tick(list(EXCHANGE_XT2VT.keys())))
+        if self.gateway.stock_trading:
+            self.query_stock_contracts()
+        else:
+            self.query_future_contracts()
+        self.gateway.write_log("合约信息查询成功")
+
+    def query_stock_contracts(self) -> None:
+        """查询股票合约信息"""
+        xt_symbols: List[str] = []
+        markets: list = ["SH", "SZ", "BJ"]
+
+        for i in markets:
+            names: list = get_stock_list_in_sector(i)
+            xt_symbols += names
 
         for xt_symbol in xt_symbols:
             # 筛选需要的合约
             product = None
+            symbol, xt_exchange = xt_symbol.split(".")
 
-            if xt_symbol.endswith("SZ"):
+            if xt_exchange == "SZ":
                 if xt_symbol.startswith("00"):
                     product = Product.EQUITY
                 elif xt_symbol.startswith("159"):
                     product = Product.FUND
-            elif xt_symbol.endswith("SH"):
+            elif xt_exchange == "SH":
                 if xt_symbol.startswith(("60", "68")):
                     product = Product.EQUITY
                 elif xt_symbol.startswith("51"):
                     product = Product.FUND
-            elif xt_symbol.endswith("BJ"):
+            elif xt_exchange == "BJ":
                 product = Product.EQUITY
 
             if not product:
                 continue
 
             # 生成并推送合约信息
-            symbol, xt_exchange = xt_symbol.split(".")
             data: dict = get_instrument_detail(xt_symbol)
 
             contract: ContractData = ContractData(
@@ -279,7 +307,7 @@ class XtMdApi:
                 exchange=EXCHANGE_XT2VT[xt_exchange],
                 name=data["InstrumentName"],
                 product=product,
-                size=1,
+                size=data["VolumeMultiple"],
                 pricetick=data["PriceTick"],
                 history_data=True,
                 gateway_name=self.gateway_name
@@ -288,7 +316,65 @@ class XtMdApi:
             symbol_contract_map[contract.vt_symbol] = contract
             self.gateway.on_contract(contract)
 
-        self.gateway.write_log("合约信息查询成功")
+    def query_future_contracts(self) -> None:
+        """查询期货合约信息"""
+        xt_symbols: List[str] = []
+        markets: list = ["IF", "SF", "INE", "DF", "ZF", "GF"]
+
+        for i in markets:
+            names: list = get_stock_list_in_sector(i)
+            xt_symbols += names
+
+        for xt_symbol in xt_symbols:
+            # 筛选需要的合约
+            product = None
+            symbol, xt_exchange = xt_symbol.split(".")
+            md_exchange: str = MDEXCHANGE_XT2XT[xt_exchange]
+            xt_symbol = xt_symbol.replace(xt_exchange, md_exchange)
+
+            if xt_exchange == "CZCE" and len(symbol) > 6 and "&" not in symbol:
+                product = Product.OPTION
+            elif xt_exchange in ("CFFEX", "GFEX") and "-" in symbol:
+                product = Product.OPTION
+            elif xt_exchange in ("DCE", "INE", "SHFE") and ("C" in symbol or "P" in symbol) and "SP" not in symbol:
+                product = Product.OPTION
+            else:
+                product = Product.FUTURES
+
+            # 生成并推送合约信息
+            if product == Product.OPTION:
+                data: dict = get_instrument_detail(xt_symbol, True)
+            else:
+                data: dict = get_instrument_detail(xt_symbol)
+
+            if not data["ExpireDate"]:
+                continue
+
+            contract: ContractData = ContractData(
+                symbol=symbol,
+                exchange=EXCHANGE_XT2VT[xt_exchange],
+                name=data["InstrumentName"],
+                product=product,
+                size=data["VolumeMultiple"],
+                pricetick=data["PriceTick"],
+                history_data=True,
+                gateway_name=self.gateway_name
+            )
+
+            if product == Product.OPTION:
+                if contract.exchange == Exchange.CZCE:
+                    contract.option_portfolio = data["ProductID"][:-1]
+                else:
+                    contract.option_portfolio = data["ProductID"]
+                contract.option_underlying = data["ExtendInfo"]["OptUndlCode"]
+                contract.option_type = OPTIONTYPE_XT2VT[data["ProductName"].replace("-", "")[-1]]
+                contract.option_strike = data["ExtendInfo"]["OptExercisePrice"]
+                contract.option_index = str(data["ExtendInfo"]["OptExercisePrice"])
+                contract.option_listed = datetime.strptime(data["OpenDate"], "%Y%m%d")
+                contract.option_expiry = datetime.strptime(data["ExpireDate"], "%Y%m%d")
+
+            symbol_contract_map[contract.vt_symbol] = contract
+            self.gateway.on_contract(contract)
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
