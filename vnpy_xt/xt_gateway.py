@@ -1,9 +1,7 @@
-import pytz
 from datetime import datetime, timedelta, time
 from typing import Dict, Tuple, List
 
 from pandas import DataFrame
-from xtquant import xtconstant
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import (
     StockAccount,
@@ -18,10 +16,35 @@ from xtquant.xttype import (
 )
 from xtquant.xtdata import (
     subscribe_quote,
-    get_full_tick,
     get_instrument_detail,
     get_local_data,
-    download_history_data
+    download_history_data,
+    get_stock_list_in_sector
+)
+from xtquant.xtconstant import (
+    ORDER_UNREPORTED,
+    ORDER_WAIT_REPORTING,
+    ORDER_REPORTED,
+    ORDER_REPORTED_CANCEL,
+    ORDER_PARTSUCC_CANCEL,
+    ORDER_PART_CANCEL,
+    ORDER_CANCELED,
+    ORDER_PART_SUCC,
+    ORDER_SUCCEEDED,
+    ORDER_JUNK,
+    STOCK_BUY,
+    STOCK_SELL,
+    FUTURE_OPEN_LONG,
+    FUTURE_OPEN_SHORT,
+    FUTURE_CLOSE_SHORT_TODAY,
+    FUTURE_CLOSE_LONG_TODAY,
+    FUTURE_CLOSE_SHORT_HISTORY,
+    FUTURE_CLOSE_LONG_HISTORY,
+    DIRECTION_FLAG_BUY,
+    DIRECTION_FLAG_SELL,
+    MARKET_SH_CONVERT_5_CANCEL,
+    MARKET_SZ_CONVERT_5_CANCEL,
+    FIX_PRICE,
 )
 
 from vnpy.event import EventEngine, EVENT_TIMER
@@ -37,7 +60,9 @@ from vnpy.trader.object import (
     ContractData,
     TickData,
     BarData,
-    HistoryRequest
+    HistoryRequest,
+    OptionType,
+    Offset
 )
 from vnpy.trader.constant import (
     OrderType,
@@ -47,37 +72,61 @@ from vnpy.trader.constant import (
     Product,
     Interval
 )
+from vnpy.trader.utility import ZoneInfo
 
 
 # 委托状态映射
 STATUS_XT2VT: Dict[str, Status] = {
-    xtconstant.ORDER_UNREPORTED: Status.SUBMITTING,
-    xtconstant.ORDER_WAIT_REPORTING: Status.SUBMITTING,
-    xtconstant.ORDER_REPORTED: Status.NOTTRADED,
-    xtconstant.ORDER_REPORTED_CANCEL: Status.CANCELLED,
-    xtconstant.ORDER_PARTSUCC_CANCEL: Status.CANCELLED,
-    xtconstant.ORDER_PART_CANCEL: Status.CANCELLED,
-    xtconstant.ORDER_CANCELED: Status.CANCELLED,
-    xtconstant.ORDER_PART_SUCC: Status.PARTTRADED,
-    xtconstant.ORDER_SUCCEEDED: Status.ALLTRADED,
-    xtconstant.ORDER_JUNK: Status.REJECTED
+    ORDER_UNREPORTED: Status.SUBMITTING,
+    ORDER_WAIT_REPORTING: Status.SUBMITTING,
+    ORDER_REPORTED: Status.NOTTRADED,
+    ORDER_REPORTED_CANCEL: Status.CANCELLED,
+    ORDER_PARTSUCC_CANCEL: Status.CANCELLED,
+    ORDER_PART_CANCEL: Status.CANCELLED,
+    ORDER_CANCELED: Status.CANCELLED,
+    ORDER_PART_SUCC: Status.PARTTRADED,
+    ORDER_SUCCEEDED: Status.ALLTRADED,
+    ORDER_JUNK: Status.REJECTED
 }
 
 # 多空方向映射
-DIRECTION_VT2XT: Dict[Direction, str] = {
-    Direction.LONG: xtconstant.STOCK_BUY,
-    Direction.SHORT: xtconstant.STOCK_SELL,
+DIRECTION_VT2XT: Dict[tuple, int] = {
+    (Direction.LONG, Offset.NONE): STOCK_BUY,
+    (Direction.SHORT, Offset.NONE): STOCK_SELL,
+    (Direction.LONG, Offset.OPEN): FUTURE_OPEN_LONG,
+    (Direction.SHORT, Offset.OPEN): FUTURE_OPEN_SHORT,
+    (Direction.LONG, Offset.CLOSE): FUTURE_CLOSE_SHORT_TODAY,
+    (Direction.SHORT, Offset.CLOSE): FUTURE_CLOSE_LONG_TODAY,
+    (Direction.LONG, Offset.CLOSETODAY): FUTURE_CLOSE_SHORT_TODAY,
+    (Direction.SHORT, Offset.CLOSETODAY): FUTURE_CLOSE_LONG_TODAY,
+    (Direction.LONG, Offset.CLOSEYESTERDAY): FUTURE_CLOSE_SHORT_HISTORY,
+    (Direction.SHORT, Offset.CLOSEYESTERDAY): FUTURE_CLOSE_LONG_HISTORY,
 }
-DIRECTION_XT2VT: Dict[str, Direction] = {v: k for k, v in DIRECTION_VT2XT.items()}
+STKDIRECTION_XT2VT: Dict[int, Direction] = {
+    STOCK_BUY: Direction.LONG,
+    STOCK_SELL: Direction.SHORT
+}
+POSDIRECTION_XT2VT: Dict[int, Direction] = {
+    DIRECTION_FLAG_BUY: Direction.LONG,
+    DIRECTION_FLAG_SELL: Direction.SHORT
+}
+FUTOFFSET_XT2VT: Dict[int, Offset] = {
+    23: Offset.OPEN,
+    24: Offset.CLOSE
+}
 
 # 委托类型映射
 ORDERTYPE_VT2XT: Dict[Tuple, int] = {
-    (Exchange.SSE, OrderType.MARKET): xtconstant.MARKET_SH_CONVERT_5_CANCEL,
-    (Exchange.SZSE, OrderType.MARKET): xtconstant.MARKET_SZ_CONVERT_5_CANCEL,
-    (Exchange.BSE, OrderType.MARKET): xtconstant.MARKET_SZ_CONVERT_5_CANCEL,
-    (Exchange.SSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
-    (Exchange.SZSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
-    (Exchange.BSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
+    (Exchange.SSE, OrderType.MARKET): MARKET_SH_CONVERT_5_CANCEL,
+    (Exchange.SZSE, OrderType.MARKET): MARKET_SZ_CONVERT_5_CANCEL,
+    (Exchange.SSE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.SZSE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.BSE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.SHFE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.INE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.CFFEX, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.CZCE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.DCE, OrderType.LIMIT): FIX_PRICE,
 }
 ORDERTYPE_XT2VT: Dict[int, OrderType] = {
     50: OrderType.LIMIT,
@@ -88,9 +137,35 @@ ORDERTYPE_XT2VT: Dict[int, OrderType] = {
 EXCHANGE_XT2VT: Dict[str, Exchange] = {
     "SH": Exchange.SSE,
     "SZ": Exchange.SZSE,
-    "BJ": Exchange.BSE
+    "BJ": Exchange.BSE,
+    "SHFE": Exchange.SHFE,
+    "CFFEX": Exchange.CFFEX,
+    "INE": Exchange.INE,
+    "DCE": Exchange.DCE,
+    "CZCE": Exchange.CZCE,
+    "GFEX": Exchange.GFEX
 }
 EXCHANGE_VT2XT: Dict[Exchange, str] = {v: k for k, v in EXCHANGE_XT2VT.items()}
+MDEXCHANGE_VT2XT: Dict[str, Exchange] = {
+    Exchange.SSE: "SH",
+    Exchange.SZSE: "SZ",
+    Exchange.BSE: "BJ",
+    Exchange.SHFE: "SF",
+    Exchange.CFFEX: "IF",
+    Exchange.INE: "INE",
+    Exchange.DCE: "DF",
+    Exchange.CZCE: "ZF",
+    Exchange.GFEX: "GF",
+}
+MDEXCHANGE_XT2VT: Dict[str, Exchange] = {v: k for k, v in MDEXCHANGE_VT2XT.items()}
+MDEXCHANGE_XT2XT: Dict[str, str] = {
+    "CFFEX": "IF",
+    "SHFE": "SF",
+    "INE": "INE",
+    "DCE": "DF",
+    "CZCE": "ZF",
+    "GFEX": "GF"
+}
 
 # 数据频率映射
 INTERVAL_VT2XT = {
@@ -98,8 +173,20 @@ INTERVAL_VT2XT = {
     Interval.DAILY: "1d",
 }
 
+# 数据频率调整映射
+INTERVAL_ADJUSTMENT_MAP: Dict[Interval, timedelta] = {
+    Interval.MINUTE: timedelta(minutes=1),
+    Interval.DAILY: timedelta()
+}
+
+# 期权类型映射
+OPTIONTYPE_XT2VT: Dict[str, OptionType] = {
+    "C": OptionType.CALL,
+    "P": OptionType.PUT,
+}
+
 # 其他常量
-CHINA_TZ = pytz.timezone("Asia/Shanghai")       # 中国时区
+CHINA_TZ = ZoneInfo("Asia/Shanghai")       # 中国时区
 
 # 合约数据全局缓存字典
 symbol_contract_map: Dict[str, ContractData] = {}
@@ -114,7 +201,8 @@ class XtGateway(BaseGateway):
 
     default_setting: Dict[str, str] = {
         "路径": "",
-        "资金账号": ""
+        "资金账号": "",
+        "账户类型": ["股票", "期货"]
     }
 
     exchanges: List[str] = list(EXCHANGE_XT2VT.values())
@@ -126,6 +214,7 @@ class XtGateway(BaseGateway):
         self.td_api: "XtTdApi" = XtTdApi(self)
         self.md_api: "XtMdApi" = XtMdApi(self)
 
+        self.stock_trading: bool = True
         self.orders: Dict[str, OrderData] = {}
 
     def connect(self, setting: dict) -> None:
@@ -133,6 +222,7 @@ class XtGateway(BaseGateway):
         path: str = setting["路径"]
         accountid: str = setting["资金账号"]
 
+        self.stock_trading: bool = setting["账户类型"] == "股票"
         self.td_api.init(path, accountid)
         self.md_api.connect()
 
@@ -210,12 +300,12 @@ class XtMdApi:
             for d in buf:
                 xt_symbol: str = next(iter(data.keys()))
                 symbol, xt_exchange = xt_symbol.split(".")
-                exchange = EXCHANGE_XT2VT[xt_exchange]
+                exchange = MDEXCHANGE_XT2VT[xt_exchange]
 
                 tick: TickData = TickData(
                     symbol=symbol,
                     exchange=exchange,
-                    datetime=generate_datetime(d["time"], True),
+                    datetime=generate_datetime(d["time"]),
                     volume=d["volume"],
                     turnover=d["amount"],
                     open_interest=d["openInt"],
@@ -248,30 +338,43 @@ class XtMdApi:
 
     def query_contracts(self) -> None:
         """查询合约信息"""
-        xt_symbols: List[str] = list(get_full_tick(list(EXCHANGE_XT2VT.keys())))
+        if self.gateway.stock_trading:
+            self.query_stock_contracts()
+        else:
+            self.query_future_contracts()
+        self.gateway.write_log("合约信息查询成功")
+
+    def query_stock_contracts(self) -> None:
+        """查询股票合约信息"""
+        xt_symbols: List[str] = []
+        markets: list = ["SH", "SZ", "BJ"]
+
+        for i in markets:
+            names: list = get_stock_list_in_sector(i)
+            xt_symbols += names
 
         for xt_symbol in xt_symbols:
             # 筛选需要的合约
             product = None
+            symbol, xt_exchange = xt_symbol.split(".")
 
-            if xt_symbol.endswith("SZ"):
+            if xt_exchange == "SZ":
                 if xt_symbol.startswith("00"):
                     product = Product.EQUITY
                 elif xt_symbol.startswith("159"):
                     product = Product.FUND
-            elif xt_symbol.endswith("SH"):
+            elif xt_exchange == "SH":
                 if xt_symbol.startswith(("60", "68")):
                     product = Product.EQUITY
                 elif xt_symbol.startswith("51"):
                     product = Product.FUND
-            elif xt_symbol.endswith("BJ"):
+            elif xt_exchange == "BJ":
                 product = Product.EQUITY
 
             if not product:
                 continue
 
             # 生成并推送合约信息
-            symbol, xt_exchange = xt_symbol.split(".")
             data: dict = get_instrument_detail(xt_symbol)
 
             contract: ContractData = ContractData(
@@ -279,7 +382,7 @@ class XtMdApi:
                 exchange=EXCHANGE_XT2VT[xt_exchange],
                 name=data["InstrumentName"],
                 product=product,
-                size=1,
+                size=data["VolumeMultiple"],
                 pricetick=data["PriceTick"],
                 history_data=True,
                 gateway_name=self.gateway_name
@@ -288,14 +391,72 @@ class XtMdApi:
             symbol_contract_map[contract.vt_symbol] = contract
             self.gateway.on_contract(contract)
 
-        self.gateway.write_log("合约信息查询成功")
+    def query_future_contracts(self) -> None:
+        """查询期货合约信息"""
+        xt_symbols: List[str] = []
+        markets: list = ["IF", "SF", "INE", "DF", "ZF", "GF"]
+
+        for i in markets:
+            names: list = get_stock_list_in_sector(i)
+            xt_symbols += names
+
+        for xt_symbol in xt_symbols:
+            # 筛选需要的合约
+            product = None
+            symbol, xt_exchange = xt_symbol.split(".")
+            md_exchange: str = MDEXCHANGE_XT2XT[xt_exchange]
+            xt_symbol = xt_symbol.replace(xt_exchange, md_exchange)
+
+            if xt_exchange == "CZCE" and len(symbol) > 6 and "&" not in symbol:
+                product = Product.OPTION
+            elif xt_exchange in ("CFFEX", "GFEX") and "-" in symbol:
+                product = Product.OPTION
+            elif xt_exchange in ("DCE", "INE", "SHFE") and ("C" in symbol or "P" in symbol) and "SP" not in symbol:
+                product = Product.OPTION
+            else:
+                product = Product.FUTURES
+
+            # 生成并推送合约信息
+            if product == Product.OPTION:
+                data: dict = get_instrument_detail(xt_symbol, True)
+            else:
+                data: dict = get_instrument_detail(xt_symbol)
+
+            if not data["ExpireDate"]:
+                continue
+
+            contract: ContractData = ContractData(
+                symbol=symbol,
+                exchange=EXCHANGE_XT2VT[xt_exchange],
+                name=data["InstrumentName"],
+                product=product,
+                size=data["VolumeMultiple"],
+                pricetick=data["PriceTick"],
+                history_data=True,
+                gateway_name=self.gateway_name
+            )
+
+            if product == Product.OPTION:
+                if contract.exchange == Exchange.CZCE:
+                    contract.option_portfolio = data["ProductID"][:-1]
+                else:
+                    contract.option_portfolio = data["ProductID"]
+                contract.option_underlying = data["ExtendInfo"]["OptUndlCode"]
+                contract.option_type = OPTIONTYPE_XT2VT[data["ProductName"].replace("-", "")[-1]]
+                contract.option_strike = data["ExtendInfo"]["OptExercisePrice"]
+                contract.option_index = str(data["ExtendInfo"]["OptExercisePrice"])
+                contract.option_listed = datetime.strptime(data["OpenDate"], "%Y%m%d")
+                contract.option_expiry = datetime.strptime(data["ExpireDate"], "%Y%m%d")
+
+            symbol_contract_map[contract.vt_symbol] = contract
+            self.gateway.on_contract(contract)
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
         if req.vt_symbol not in symbol_contract_map:
             return
 
-        xt_symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+        xt_symbol: str = req.symbol + "." + MDEXCHANGE_VT2XT[req.exchange]
         if xt_symbol not in self.subscribed:
             subscribe_quote(stock_code=xt_symbol, period="tick", callback=self.onMarketData)
             self.subscribed.add(xt_symbol)
@@ -303,35 +464,44 @@ class XtMdApi:
     def query_history(self, req: HistoryRequest) -> List[BarData]:
         """查询K线历史"""
         history: List[BarData] = []
+        symbol: str = req.symbol
+        exchange: Exchange = req.exchange
+        interval: Interval = req.interval
 
         # 检查是否支持该数据
         if req.vt_symbol not in symbol_contract_map:
             self.gateway.write_log(f"获取K线数据失败，找不到{req.vt_symbol}合约")
             return history
 
-        period: str = INTERVAL_VT2XT.get(req.interval, None)
-        if period is None:
-            self.gateway.write_log(f"获取K线数据失败，接口暂不提供{req.interval.value}级别历史数据")
+        xt_interval: str = INTERVAL_VT2XT.get(interval, None)
+        if xt_interval is None:
+            self.gateway.write_log(f"获取K线数据失败，接口暂不提供{interval.value}级别历史数据")
             return history
 
         # 从服务器下载获取
-        xt_symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+        xt_symbol: str = symbol + "." + MDEXCHANGE_VT2XT[exchange]
         start: str = req.start.strftime("%Y%m%d%H%M%S")
         end: str = req.end.strftime("%Y%m%d%H%M%S")
 
-        download_history_data(xt_symbol, period, start, end)
-        data: dict = get_local_data([], [xt_symbol], period, start, end)
+        download_history_data(xt_symbol, xt_interval, start, end)
+        data: dict = get_local_data([], [xt_symbol], xt_interval, start, end, -1, "front_ratio")      # 默认等比前复权
 
         df: DataFrame = data[xt_symbol]
 
         if df.empty:
             return history
 
+        adjustment: timedelta = INTERVAL_ADJUSTMENT_MAP[interval]
+
         # 遍历解析
         for tp in df.itertuples():
+
+            # 为了xtdata时间戳（K线结束时点）转换为VeighNa时间戳（K线开始时点）
+            dt: datetime = generate_datetime(tp.time)
+            dt = dt - adjustment
+
             # 日线过滤尚未走完的当日数据
-            if req.interval == Interval.DAILY:
-                dt: datetime = generate_datetime(tp.time, True)
+            if interval == Interval.DAILY:
                 incomplete_bar: bool = (
                     dt.date() == datetime.now().date()
                     and datetime.now().time() < time(hour=15)
@@ -340,15 +510,14 @@ class XtMdApi:
                     continue
             # 分钟线过滤开盘脏前数据
             else:
-                dt: datetime = generate_datetime(tp.time, True, True)
-                if dt.time() < time(hour=9, minute=30):
+                if exchange in (Exchange.SSE, Exchange.SZSE, Exchange.BSE) and dt.time() < time(hour=9, minute=30):
                     continue
 
             bar: BarData = BarData(
-                symbol=req.symbol,
-                exchange=req.exchange,
+                symbol=symbol,
+                exchange=exchange,
                 datetime=dt,
-                interval=req.interval,
+                interval=interval,
                 volume=float(tp.volume),
                 turnover=float(tp.amount),
                 open_interest=float(tp.openInterest),
@@ -362,7 +531,7 @@ class XtMdApi:
 
         # 输出日志信息
         if history:
-            msg: str = f"获取历史数据成功，{req.vt_symbol} - {req.interval.value}，{history[0].datetime} - {history[-1].datetime}"
+            msg: str = f"获取历史数据成功，{req.vt_symbol} - {interval.value}，{history[0].datetime} - {history[-1].datetime}"
             self.gateway.write_log(msg)
 
         return history
@@ -427,28 +596,35 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         # 过滤不支持的委托类型
-        type: OrderType = ORDERTYPE_XT2VT.get(xt_order.price_type, None)
-        if not type:
+        type_: OrderType = ORDERTYPE_XT2VT.get(xt_order.price_type, None)
+        if not type_:
             return
 
         symbol, xt_exchange = xt_order.stock_code.split(".")
+        if self.gateway.stock_trading:
+            direction = STKDIRECTION_XT2VT[xt_order.order_type]
+            offset = Offset.NONE
+        else:
+            direction = Direction.LONG      # 等增加方向字段后再修复
+            offset = FUTOFFSET_XT2VT.get(xt_order.order_type, Offset.CLOSE)
 
         order: OrderData = OrderData(
             symbol=symbol,
             exchange=EXCHANGE_XT2VT[xt_exchange],
             orderid=xt_order.order_remark,
-            direction=DIRECTION_XT2VT[xt_order.order_type],
-            type=type,                  # 目前测出来与文档不同，限价返回50，市价返回88
+            direction=direction,
+            offset=offset,
+            type=type_,                  # 目前测出来与文档不同，限价返回50，市价返回88
             price=xt_order.price,
             volume=xt_order.order_volume,
             traded=xt_order.traded_volume,
             status=STATUS_XT2VT.get(xt_order.order_status, Status.SUBMITTING),
-            datetime=generate_datetime(xt_order.order_time),
+            datetime=generate_datetime(xt_order.order_time, False),
             gateway_name=self.gateway_name
         )
 
         if order.is_active():
-            self.active_localid_sysid_map[xt_order.order_remark] = xt_order.order_id
+            self.active_localid_sysid_map[xt_order.order_remark] = xt_order.order_sysid
         else:
             self.active_localid_sysid_map.pop(xt_order.order_remark, None)
 
@@ -483,16 +659,23 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         symbol, xt_exchange = xt_trade.stock_code.split(".")
+        if self.gateway.stock_trading:
+            direction = STKDIRECTION_XT2VT[xt_trade.order_type]
+            offset = Offset.NONE
+        else:
+            direction = Direction.LONG      # 等增加方向字段后再修复
+            offset = FUTOFFSET_XT2VT.get(xt_trade.order_type, Offset.CLOSE)
 
         trade: TradeData = TradeData(
             symbol=symbol,
             exchange=EXCHANGE_XT2VT[xt_exchange],
             orderid=xt_trade.order_remark,
             tradeid=xt_trade.traded_id,
-            direction=DIRECTION_XT2VT[xt_trade.order_type],
+            direction=direction,
+            offset=offset,
             price=xt_trade.traded_price,
             volume=xt_trade.traded_volume,
-            datetime=generate_datetime(xt_trade.traded_time),
+            datetime=generate_datetime(xt_trade.traded_time, False),
             gateway_name=self.gateway_name
         )
 
@@ -516,11 +699,15 @@ class XtTdApi(XtQuantTraderCallback):
                 continue
 
             symbol, xt_exchange = xt_position.stock_code.split(".")
+            if self.gateway.stock_trading:
+                direction = Direction.NET
+            else:
+                direction = POSDIRECTION_XT2VT[xt_position.direction]
 
             position: PositionData = PositionData(
                 symbol=symbol,
                 exchange=EXCHANGE_XT2VT[xt_exchange],
-                direction=Direction.NET,
+                direction=direction,
                 volume=xt_position.volume,
                 yd_volume=xt_position.can_use_volume,
                 frozen=xt_position.volume - xt_position.can_use_volume,
@@ -568,7 +755,23 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
             return ""
 
+        if not self.gateway.stock_trading and req.offset == Offset.NONE:
+            self.gateway.write_log("委托失败，期货交易需要选择开平方向")
+            return
+
+        if self.gateway.stock_trading and req.offset != Offset.NONE:
+            self.gateway.write_log("委托失败，股票交易不需要选择开平方向")
+            return
+
         if req.type not in {OrderType.LIMIT, OrderType.MARKET}:
+            self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
+            return ""
+
+        if self.gateway.stock_trading and req.exchange in (Exchange.SSE, Exchange.SZSE):
+            ordertype: int = ORDERTYPE_VT2XT[(req.exchange, req.type)]
+        elif req.type == OrderType.LIMIT:
+            ordertype = FIX_PRICE
+        else:
             self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
             return ""
 
@@ -578,9 +781,9 @@ class XtTdApi(XtQuantTraderCallback):
         self.xt_client.order_stock_async(
             account=self.xt_account,
             stock_code=stock_code,
-            order_type=DIRECTION_VT2XT[req.direction],
+            order_type=DIRECTION_VT2XT[(req.direction, req.offset)],
             order_volume=int(req.volume),
-            price_type=ORDERTYPE_VT2XT[(req.exchange, req.type)],
+            price_type=ordertype,
             price=req.price,
             strategy_name=req.reference,
             order_remark=orderid
@@ -598,7 +801,7 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log("撤单失败，找不到委托号")
             return
 
-        self.xt_client.cancel_order_stock_async(self.xt_account, sysid)
+        self.xt_client.cancel_order_stock_sysid_async(self.xt_account, 0, sysid)
 
     def query_position(self) -> None:
         """查询持仓"""
@@ -622,7 +825,10 @@ class XtTdApi(XtQuantTraderCallback):
         session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
         self.xt_client = XtQuantTrader(path, session)
 
-        self.xt_account = StockAccount(accountid)
+        if not self.gateway.stock_trading:
+            self.xt_account = StockAccount(accountid, account_type="FUTURE")
+        else:
+            self.xt_account = StockAccount(accountid)
 
         # 注册回调接口
         self.xt_client.register_callback(self)
@@ -659,13 +865,11 @@ class XtTdApi(XtQuantTraderCallback):
             self.xt_client.stop()
 
 
-def generate_datetime(timestamp: int, millisecond=False, adjusted=False) -> datetime:
+def generate_datetime(timestamp: int, millisecond: bool = True) -> datetime:
     """生成本地时间"""
     if millisecond:
         dt: datetime = datetime.fromtimestamp(timestamp / 1000)
     else:
         dt: datetime = datetime.fromtimestamp(timestamp)
-    if adjusted:
-        dt: datetime = dt - timedelta(minutes=1)
-    dt: datetime = CHINA_TZ.localize(dt)
+    dt: datetime = dt.replace(tzinfo=CHINA_TZ)
     return dt
