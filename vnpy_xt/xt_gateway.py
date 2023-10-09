@@ -66,14 +66,29 @@ STATUS_XT2VT: Dict[str, Status] = {
 }
 
 # 多空方向映射
-DIRECTION_VT2XT: Dict[Direction, str] = {
-    Direction.LONG: xtconstant.STOCK_BUY,
-    Direction.SHORT: xtconstant.STOCK_SELL,
+DIRECTION_VT2XT: Dict[tuple, int] = {
+    (Direction.LONG, Offset.NONE): xtconstant.STOCK_BUY,
+    (Direction.SHORT, Offset.NONE): xtconstant.STOCK_SELL,
+    (Direction.LONG, Offset.OPEN): xtconstant.FUTURE_OPEN_LONG,
+    (Direction.SHORT, Offset.OPEN): xtconstant.FUTURE_OPEN_SHORT,
+    (Direction.LONG, Offset.CLOSE): xtconstant.FUTURE_CLOSE_SHORT_TODAY,
+    (Direction.SHORT, Offset.CLOSE): xtconstant.FUTURE_CLOSE_LONG_TODAY,
+    (Direction.LONG, Offset.CLOSETODAY): xtconstant.FUTURE_CLOSE_SHORT_TODAY,
+    (Direction.SHORT, Offset.CLOSETODAY): xtconstant.FUTURE_CLOSE_LONG_TODAY,
+    (Direction.LONG, Offset.CLOSEYESTERDAY): xtconstant.FUTURE_CLOSE_SHORT_HISTORY,
+    (Direction.SHORT, Offset.CLOSEYESTERDAY): xtconstant.FUTURE_CLOSE_LONG_HISTORY,
 }
-DIRECTION_XT2VT: Dict[str, Direction] = {v: k for k, v in DIRECTION_VT2XT.items()}
+STKDIRECTION_XT2VT: Dict[int, Direction] = {
+    xtconstant.STOCK_BUY: Direction.LONG,
+    xtconstant.STOCK_SELL: Direction.SHORT
+}
 POSDIRECTION_XT2VT: Dict[int, Direction] = {
     xtconstant.DIRECTION_FLAG_BUY: Direction.LONG,
     xtconstant.DIRECTION_FLAG_SELL: Direction.SHORT
+}
+FUTOFFSET_XT2VT: Dict[int, Offset] = {
+    23: Offset.OPEN,
+    24: Offset.CLOSE
 }
 
 # 委托类型映射
@@ -84,6 +99,11 @@ ORDERTYPE_VT2XT: Dict[Tuple, int] = {
     (Exchange.SSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
     (Exchange.SZSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
     (Exchange.BSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
+    (Exchange.SHFE, OrderType.LIMIT): xtconstant.FIX_PRICE,
+    (Exchange.INE, OrderType.LIMIT): xtconstant.FIX_PRICE,
+    (Exchange.CFFEX, OrderType.LIMIT): xtconstant.FIX_PRICE,
+    (Exchange.CZCE, OrderType.LIMIT): xtconstant.FIX_PRICE,
+    (Exchange.DCE, OrderType.LIMIT): xtconstant.FIX_PRICE,
 }
 ORDERTYPE_XT2VT: Dict[int, OrderType] = {
     50: OrderType.LIMIT,
@@ -558,12 +578,19 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         symbol, xt_exchange = xt_order.stock_code.split(".")
+        if self.gateway.stock_trading:
+            direction = STKDIRECTION_XT2VT[xt_order.order_type]
+            offset = Offset.NONE
+        else:
+            direction = Direction.LONG      # 等增加方向字段后再修复
+            offset = FUTOFFSET_XT2VT.get(xt_order.order_type, Offset.CLOSE)
 
         order: OrderData = OrderData(
             symbol=symbol,
             exchange=EXCHANGE_XT2VT[xt_exchange],
             orderid=xt_order.order_remark,
-            direction=DIRECTION_XT2VT[xt_order.order_type],
+            direction=direction,
+            offset=offset,
             type=type_,                  # 目前测出来与文档不同，限价返回50，市价返回88
             price=xt_order.price,
             volume=xt_order.order_volume,
@@ -609,13 +636,20 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         symbol, xt_exchange = xt_trade.stock_code.split(".")
+        if self.gateway.stock_trading:
+            direction = STKDIRECTION_XT2VT[xt_trade.order_type]
+            offset = Offset.NONE
+        else:
+            direction = Direction.LONG      # 等增加方向字段后再修复
+            offset = FUTOFFSET_XT2VT.get(xt_trade.order_type, Offset.CLOSE)
 
         trade: TradeData = TradeData(
             symbol=symbol,
             exchange=EXCHANGE_XT2VT[xt_exchange],
             orderid=xt_trade.order_remark,
             tradeid=xt_trade.traded_id,
-            direction=DIRECTION_XT2VT[xt_trade.order_type],
+            direction=direction,
+            offset=offset,
             price=xt_trade.traded_price,
             volume=xt_trade.traded_volume,
             datetime=generate_datetime(xt_trade.traded_time, False),
@@ -710,15 +744,23 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
             return ""
 
+        if self.gateway.stock_trading:
+            ordertype: int = ORDERTYPE_VT2XT[(req.exchange, req.type)]
+        elif req.type == OrderType.LIMIT:
+            ordertype = xtconstant.FIX_PRICE
+        else:
+            self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
+            return ""
+
         stock_code: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
         orderid: str = self.new_orderid()
 
         self.xt_client.order_stock_async(
             account=self.xt_account,
             stock_code=stock_code,
-            order_type=DIRECTION_VT2XT[req.direction],
+            order_type=DIRECTION_VT2XT[(req.direction, req.offset)],
             order_volume=int(req.volume),
-            price_type=ORDERTYPE_VT2XT[(req.exchange, req.type)],
+            price_type=ordertype,
             price=req.price,
             strategy_name=req.reference,
             order_remark=orderid
