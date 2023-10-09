@@ -1,4 +1,3 @@
-import pytz
 from datetime import datetime, timedelta, time
 from typing import Dict, Tuple, List
 
@@ -47,6 +46,7 @@ from vnpy.trader.constant import (
     Product,
     Interval
 )
+from vnpy.trader.utility import ZoneInfo
 
 
 # 委托状态映射
@@ -99,7 +99,7 @@ INTERVAL_VT2XT = {
 }
 
 # 其他常量
-CHINA_TZ = pytz.timezone("Asia/Shanghai")       # 中国时区
+CHINA_TZ = ZoneInfo("Asia/Shanghai")       # 中国时区
 
 # 合约数据全局缓存字典
 symbol_contract_map: Dict[str, ContractData] = {}
