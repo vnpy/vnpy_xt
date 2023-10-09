@@ -548,8 +548,8 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         # 过滤不支持的委托类型
-        type: OrderType = ORDERTYPE_XT2VT.get(xt_order.price_type, None)
-        if not type:
+        type_: OrderType = ORDERTYPE_XT2VT.get(xt_order.price_type, None)
+        if not type_:
             return
 
         symbol, xt_exchange = xt_order.stock_code.split(".")
@@ -559,7 +559,7 @@ class XtTdApi(XtQuantTraderCallback):
             exchange=EXCHANGE_XT2VT[xt_exchange],
             orderid=xt_order.order_remark,
             direction=DIRECTION_XT2VT[xt_order.order_type],
-            type=type,                  # 目前测出来与文档不同，限价返回50，市价返回88
+            type=type_,                  # 目前测出来与文档不同，限价返回50，市价返回88
             price=xt_order.price,
             volume=xt_order.order_volume,
             traded=xt_order.traded_volume,
