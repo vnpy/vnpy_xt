@@ -2,7 +2,6 @@ from datetime import datetime, timedelta, time
 from typing import Dict, Tuple, List
 
 from pandas import DataFrame
-from xtquant import xtconstant
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import (
     StockAccount,
@@ -21,6 +20,31 @@ from xtquant.xtdata import (
     get_local_data,
     download_history_data,
     get_stock_list_in_sector
+)
+from xtquant.xtconstant import (
+    ORDER_UNREPORTED,
+    ORDER_WAIT_REPORTING,
+    ORDER_REPORTED,
+    ORDER_REPORTED_CANCEL,
+    ORDER_PARTSUCC_CANCEL,
+    ORDER_PART_CANCEL,
+    ORDER_CANCELED,
+    ORDER_PART_SUCC,
+    ORDER_SUCCEEDED,
+    ORDER_JUNK,
+    STOCK_BUY,
+    STOCK_SELL,
+    FUTURE_OPEN_LONG,
+    FUTURE_OPEN_SHORT,
+    FUTURE_CLOSE_SHORT_TODAY,
+    FUTURE_CLOSE_LONG_TODAY,
+    FUTURE_CLOSE_SHORT_HISTORY,
+    FUTURE_CLOSE_LONG_HISTORY,
+    DIRECTION_FLAG_BUY,
+    DIRECTION_FLAG_SELL,
+    MARKET_SH_CONVERT_5_CANCEL,
+    MARKET_SZ_CONVERT_5_CANCEL,
+    FIX_PRICE,
 )
 
 from vnpy.event import EventEngine, EVENT_TIMER
@@ -53,38 +77,38 @@ from vnpy.trader.utility import ZoneInfo
 
 # 委托状态映射
 STATUS_XT2VT: Dict[str, Status] = {
-    xtconstant.ORDER_UNREPORTED: Status.SUBMITTING,
-    xtconstant.ORDER_WAIT_REPORTING: Status.SUBMITTING,
-    xtconstant.ORDER_REPORTED: Status.NOTTRADED,
-    xtconstant.ORDER_REPORTED_CANCEL: Status.CANCELLED,
-    xtconstant.ORDER_PARTSUCC_CANCEL: Status.CANCELLED,
-    xtconstant.ORDER_PART_CANCEL: Status.CANCELLED,
-    xtconstant.ORDER_CANCELED: Status.CANCELLED,
-    xtconstant.ORDER_PART_SUCC: Status.PARTTRADED,
-    xtconstant.ORDER_SUCCEEDED: Status.ALLTRADED,
-    xtconstant.ORDER_JUNK: Status.REJECTED
+    ORDER_UNREPORTED: Status.SUBMITTING,
+    ORDER_WAIT_REPORTING: Status.SUBMITTING,
+    ORDER_REPORTED: Status.NOTTRADED,
+    ORDER_REPORTED_CANCEL: Status.CANCELLED,
+    ORDER_PARTSUCC_CANCEL: Status.CANCELLED,
+    ORDER_PART_CANCEL: Status.CANCELLED,
+    ORDER_CANCELED: Status.CANCELLED,
+    ORDER_PART_SUCC: Status.PARTTRADED,
+    ORDER_SUCCEEDED: Status.ALLTRADED,
+    ORDER_JUNK: Status.REJECTED
 }
 
 # 多空方向映射
 DIRECTION_VT2XT: Dict[tuple, int] = {
-    (Direction.LONG, Offset.NONE): xtconstant.STOCK_BUY,
-    (Direction.SHORT, Offset.NONE): xtconstant.STOCK_SELL,
-    (Direction.LONG, Offset.OPEN): xtconstant.FUTURE_OPEN_LONG,
-    (Direction.SHORT, Offset.OPEN): xtconstant.FUTURE_OPEN_SHORT,
-    (Direction.LONG, Offset.CLOSE): xtconstant.FUTURE_CLOSE_SHORT_TODAY,
-    (Direction.SHORT, Offset.CLOSE): xtconstant.FUTURE_CLOSE_LONG_TODAY,
-    (Direction.LONG, Offset.CLOSETODAY): xtconstant.FUTURE_CLOSE_SHORT_TODAY,
-    (Direction.SHORT, Offset.CLOSETODAY): xtconstant.FUTURE_CLOSE_LONG_TODAY,
-    (Direction.LONG, Offset.CLOSEYESTERDAY): xtconstant.FUTURE_CLOSE_SHORT_HISTORY,
-    (Direction.SHORT, Offset.CLOSEYESTERDAY): xtconstant.FUTURE_CLOSE_LONG_HISTORY,
+    (Direction.LONG, Offset.NONE): STOCK_BUY,
+    (Direction.SHORT, Offset.NONE): STOCK_SELL,
+    (Direction.LONG, Offset.OPEN): FUTURE_OPEN_LONG,
+    (Direction.SHORT, Offset.OPEN): FUTURE_OPEN_SHORT,
+    (Direction.LONG, Offset.CLOSE): FUTURE_CLOSE_SHORT_TODAY,
+    (Direction.SHORT, Offset.CLOSE): FUTURE_CLOSE_LONG_TODAY,
+    (Direction.LONG, Offset.CLOSETODAY): FUTURE_CLOSE_SHORT_TODAY,
+    (Direction.SHORT, Offset.CLOSETODAY): FUTURE_CLOSE_LONG_TODAY,
+    (Direction.LONG, Offset.CLOSEYESTERDAY): FUTURE_CLOSE_SHORT_HISTORY,
+    (Direction.SHORT, Offset.CLOSEYESTERDAY): FUTURE_CLOSE_LONG_HISTORY,
 }
 STKDIRECTION_XT2VT: Dict[int, Direction] = {
-    xtconstant.STOCK_BUY: Direction.LONG,
-    xtconstant.STOCK_SELL: Direction.SHORT
+    STOCK_BUY: Direction.LONG,
+    STOCK_SELL: Direction.SHORT
 }
 POSDIRECTION_XT2VT: Dict[int, Direction] = {
-    xtconstant.DIRECTION_FLAG_BUY: Direction.LONG,
-    xtconstant.DIRECTION_FLAG_SELL: Direction.SHORT
+    DIRECTION_FLAG_BUY: Direction.LONG,
+    DIRECTION_FLAG_SELL: Direction.SHORT
 }
 FUTOFFSET_XT2VT: Dict[int, Offset] = {
     23: Offset.OPEN,
@@ -93,17 +117,17 @@ FUTOFFSET_XT2VT: Dict[int, Offset] = {
 
 # 委托类型映射
 ORDERTYPE_VT2XT: Dict[Tuple, int] = {
-    (Exchange.SSE, OrderType.MARKET): xtconstant.MARKET_SH_CONVERT_5_CANCEL,
-    (Exchange.SZSE, OrderType.MARKET): xtconstant.MARKET_SZ_CONVERT_5_CANCEL,
-    (Exchange.BSE, OrderType.MARKET): xtconstant.MARKET_SZ_CONVERT_5_CANCEL,
-    (Exchange.SSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
-    (Exchange.SZSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
-    (Exchange.BSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
-    (Exchange.SHFE, OrderType.LIMIT): xtconstant.FIX_PRICE,
-    (Exchange.INE, OrderType.LIMIT): xtconstant.FIX_PRICE,
-    (Exchange.CFFEX, OrderType.LIMIT): xtconstant.FIX_PRICE,
-    (Exchange.CZCE, OrderType.LIMIT): xtconstant.FIX_PRICE,
-    (Exchange.DCE, OrderType.LIMIT): xtconstant.FIX_PRICE,
+    (Exchange.SSE, OrderType.MARKET): MARKET_SH_CONVERT_5_CANCEL,
+    (Exchange.SZSE, OrderType.MARKET): MARKET_SZ_CONVERT_5_CANCEL,
+    (Exchange.BSE, OrderType.MARKET): MARKET_SZ_CONVERT_5_CANCEL,
+    (Exchange.SSE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.SZSE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.BSE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.SHFE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.INE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.CFFEX, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.CZCE, OrderType.LIMIT): FIX_PRICE,
+    (Exchange.DCE, OrderType.LIMIT): FIX_PRICE,
 }
 ORDERTYPE_XT2VT: Dict[int, OrderType] = {
     50: OrderType.LIMIT,
@@ -747,7 +771,7 @@ class XtTdApi(XtQuantTraderCallback):
         if self.gateway.stock_trading:
             ordertype: int = ORDERTYPE_VT2XT[(req.exchange, req.type)]
         elif req.type == OrderType.LIMIT:
-            ordertype = xtconstant.FIX_PRICE
+            ordertype = FIX_PRICE
         else:
             self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
             return ""
