@@ -254,7 +254,7 @@ class XtMdApi:
                 tick: TickData = TickData(
                     symbol=symbol,
                     exchange=exchange,
-                    datetime=generate_datetime(d["time"], True),
+                    datetime=generate_datetime(d["time"]),
                     volume=d["volume"],
                     turnover=d["amount"],
                     open_interest=d["openInt"],
@@ -451,7 +451,6 @@ class XtMdApi:
 
             # 日线过滤尚未走完的当日数据
             if interval == Interval.DAILY:
-                dt: datetime = generate_datetime(tp.time, True)
                 incomplete_bar: bool = (
                     dt.date() == datetime.now().date()
                     and datetime.now().time() < time(hour=15)
@@ -460,7 +459,6 @@ class XtMdApi:
                     continue
             # 分钟线过滤开盘脏前数据
             else:
-                dt: datetime = generate_datetime(tp.time, True, True)
                 if exchange in (Exchange.SSE, Exchange.SZSE) and dt.time() < time(hour=9, minute=30):
                     continue
 
@@ -563,7 +561,7 @@ class XtTdApi(XtQuantTraderCallback):
             volume=xt_order.order_volume,
             traded=xt_order.traded_volume,
             status=STATUS_XT2VT.get(xt_order.order_status, Status.SUBMITTING),
-            datetime=generate_datetime(xt_order.order_time),
+            datetime=generate_datetime(xt_order.order_time, False),
             gateway_name=self.gateway_name
         )
 
@@ -612,7 +610,7 @@ class XtTdApi(XtQuantTraderCallback):
             direction=DIRECTION_XT2VT[xt_trade.order_type],
             price=xt_trade.traded_price,
             volume=xt_trade.traded_volume,
-            datetime=generate_datetime(xt_trade.traded_time),
+            datetime=generate_datetime(xt_trade.traded_time, False),
             gateway_name=self.gateway_name
         )
 
@@ -779,13 +777,11 @@ class XtTdApi(XtQuantTraderCallback):
             self.xt_client.stop()
 
 
-def generate_datetime(timestamp: int, millisecond=False, adjusted=False) -> datetime:
+def generate_datetime(timestamp: int, millisecond: bool = True) -> datetime:
     """生成本地时间"""
     if millisecond:
         dt: datetime = datetime.fromtimestamp(timestamp / 1000)
     else:
         dt: datetime = datetime.fromtimestamp(timestamp)
-    if adjusted:
-        dt: datetime = dt - timedelta(minutes=1)
-    dt: datetime = CHINA_TZ.localize(dt)
+    dt: datetime = dt.replace(tzinfo=CHINA_TZ)
     return dt
