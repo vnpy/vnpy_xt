@@ -70,6 +70,10 @@ DIRECTION_VT2XT: Dict[Direction, str] = {
     Direction.SHORT: xtconstant.STOCK_SELL,
 }
 DIRECTION_XT2VT: Dict[str, Direction] = {v: k for k, v in DIRECTION_VT2XT.items()}
+POSDIRECTION_XT2VT: Dict[int, Direction] = {
+    xtconstant.DIRECTION_FLAG_BUY: Direction.LONG,
+    xtconstant.DIRECTION_FLAG_SELL: Direction.SHORT
+}
 
 # 委托类型映射
 ORDERTYPE_VT2XT: Dict[Tuple, int] = {
@@ -637,11 +641,15 @@ class XtTdApi(XtQuantTraderCallback):
                 continue
 
             symbol, xt_exchange = xt_position.stock_code.split(".")
+            if self.gateway.stock_trading:
+                direction = Direction.NET
+            else:
+                direction = POSDIRECTION_XT2VT[xt_position.direction]
 
             position: PositionData = PositionData(
                 symbol=symbol,
                 exchange=EXCHANGE_XT2VT[xt_exchange],
-                direction=Direction.NET,
+                direction=direction,
                 volume=xt_position.volume,
                 yd_volume=xt_position.can_use_volume,
                 frozen=xt_position.volume - xt_position.can_use_volume,
