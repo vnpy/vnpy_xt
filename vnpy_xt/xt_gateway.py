@@ -510,7 +510,7 @@ class XtMdApi:
                     continue
             # 分钟线过滤开盘脏前数据
             else:
-                if exchange in (Exchange.SSE, Exchange.SZSE) and dt.time() < time(hour=9, minute=30):
+                if exchange in (Exchange.SSE, Exchange.SZSE, Exchange.BSE) and dt.time() < time(hour=9, minute=30):
                     continue
 
             bar: BarData = BarData(
