@@ -98,6 +98,18 @@ EXCHANGE_XT2VT: Dict[str, Exchange] = {
     "GFEX": Exchange.GFEX
 }
 EXCHANGE_VT2XT: Dict[Exchange, str] = {v: k for k, v in EXCHANGE_XT2VT.items()}
+MDEXCHANGE_VT2XT: Dict[str, Exchange] = {
+    Exchange.SSE: "SH",
+    Exchange.SZSE: "SZ",
+    Exchange.BSE: "BJ",
+    Exchange.SHFE: "SF",
+    Exchange.CFFEX: "IF",
+    Exchange.INE: "INE",
+    Exchange.DCE: "DF",
+    Exchange.CZCE: "ZF",
+    Exchange.GFEX: "GF",
+}
+MDEXCHANGE_XT2VT: Dict[str, Exchange] = {v: k for k, v in MDEXCHANGE_VT2XT.items()}
 MDEXCHANGE_XT2XT: Dict[str, str] = {
     "CFFEX": "IF",
     "SHFE": "SF",
@@ -111,6 +123,12 @@ MDEXCHANGE_XT2XT: Dict[str, str] = {
 INTERVAL_VT2XT = {
     Interval.MINUTE: "1m",
     Interval.DAILY: "1d",
+}
+
+# 数据频率调整映射
+INTERVAL_ADJUSTMENT_MAP: Dict[Interval, timedelta] = {
+    Interval.MINUTE: timedelta(minutes=1),
+    Interval.DAILY: timedelta()
 }
 
 # 期权类型映射
@@ -395,34 +413,44 @@ class XtMdApi:
     def query_history(self, req: HistoryRequest) -> List[BarData]:
         """查询K线历史"""
         history: List[BarData] = []
+        symbol: str = req.symbol
+        exchange: Exchange = req.exchange
+        interval: Interval = req.interval
 
         # 检查是否支持该数据
         if req.vt_symbol not in symbol_contract_map:
             self.gateway.write_log(f"获取K线数据失败，找不到{req.vt_symbol}合约")
             return history
 
-        period: str = INTERVAL_VT2XT.get(req.interval, None)
-        if period is None:
-            self.gateway.write_log(f"获取K线数据失败，接口暂不提供{req.interval.value}级别历史数据")
+        xt_interval: str = INTERVAL_VT2XT.get(interval, None)
+        if xt_interval is None:
+            self.gateway.write_log(f"获取K线数据失败，接口暂不提供{interval.value}级别历史数据")
             return history
 
         # 从服务器下载获取
-        xt_symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+        xt_symbol: str = symbol + "." + MDEXCHANGE_VT2XT[exchange]
         start: str = req.start.strftime("%Y%m%d%H%M%S")
         end: str = req.end.strftime("%Y%m%d%H%M%S")
 
-        download_history_data(xt_symbol, period, start, end)
-        data: dict = get_local_data([], [xt_symbol], period, start, end)
+        download_history_data(xt_symbol, xt_interval, start, end)
+        data: dict = get_local_data([], [xt_symbol], xt_interval, start, end)
 
         df: DataFrame = data[xt_symbol]
 
         if df.empty:
             return history
 
+        adjustment: timedelta = INTERVAL_ADJUSTMENT_MAP[interval]
+
         # 遍历解析
         for tp in df.itertuples():
+
+            # 为了xtdata时间戳（K线结束时点）转换为VeighNa时间戳（K线开始时点）
+            dt: datetime = generate_datetime(tp.time)
+            dt = dt - adjustment
+
             # 日线过滤尚未走完的当日数据
-            if req.interval == Interval.DAILY:
+            if interval == Interval.DAILY:
                 dt: datetime = generate_datetime(tp.time, True)
                 incomplete_bar: bool = (
                     dt.date() == datetime.now().date()
@@ -433,14 +461,14 @@ class XtMdApi:
             # 分钟线过滤开盘脏前数据
             else:
                 dt: datetime = generate_datetime(tp.time, True, True)
-                if dt.time() < time(hour=9, minute=30):
+                if exchange in (Exchange.SSE, Exchange.SZSE) and dt.time() < time(hour=9, minute=30):
                     continue
 
             bar: BarData = BarData(
-                symbol=req.symbol,
-                exchange=req.exchange,
+                symbol=symbol,
+                exchange=exchange,
                 datetime=dt,
-                interval=req.interval,
+                interval=interval,
                 volume=float(tp.volume),
                 turnover=float(tp.amount),
                 open_interest=float(tp.openInterest),
@@ -454,7 +482,7 @@ class XtMdApi:
 
         # 输出日志信息
         if history:
-            msg: str = f"获取历史数据成功，{req.vt_symbol} - {req.interval.value}，{history[0].datetime} - {history[-1].datetime}"
+            msg: str = f"获取历史数据成功，{req.vt_symbol} - {interval.value}，{history[0].datetime} - {history[-1].datetime}"
             self.gateway.write_log(msg)
 
         return history
