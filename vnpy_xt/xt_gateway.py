@@ -89,7 +89,13 @@ ORDERTYPE_XT2VT: Dict[int, OrderType] = {
 EXCHANGE_XT2VT: Dict[str, Exchange] = {
     "SH": Exchange.SSE,
     "SZ": Exchange.SZSE,
-    "BJ": Exchange.BSE
+    "BJ": Exchange.BSE,
+    "SHFE": Exchange.SHFE,
+    "CFFEX": Exchange.CFFEX,
+    "INE": Exchange.INE,
+    "DCE": Exchange.DCE,
+    "CZCE": Exchange.CZCE,
+    "GFEX": Exchange.GFEX
 }
 EXCHANGE_VT2XT: Dict[Exchange, str] = {v: k for k, v in EXCHANGE_XT2VT.items()}
 MDEXCHANGE_XT2XT: Dict[str, str] = {
