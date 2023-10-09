@@ -153,7 +153,8 @@ class XtGateway(BaseGateway):
 
     default_setting: Dict[str, str] = {
         "路径": "",
-        "资金账号": ""
+        "资金账号": "",
+        "账户类型": ["股票", "期货"]
     }
 
     exchanges: List[str] = list(EXCHANGE_XT2VT.values())
@@ -165,6 +166,7 @@ class XtGateway(BaseGateway):
         self.td_api: "XtTdApi" = XtTdApi(self)
         self.md_api: "XtMdApi" = XtMdApi(self)
 
+        self.stock_trading: bool = True
         self.orders: Dict[str, OrderData] = {}
 
     def connect(self, setting: dict) -> None:
@@ -172,6 +174,7 @@ class XtGateway(BaseGateway):
         path: str = setting["路径"]
         accountid: str = setting["资金账号"]
 
+        self.stock_trading: bool = setting["账户类型"] == "股票"
         self.td_api.init(path, accountid)
         self.md_api.connect()
 
@@ -740,7 +743,10 @@ class XtTdApi(XtQuantTraderCallback):
         session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
         self.xt_client = XtQuantTrader(path, session)
 
-        self.xt_account = StockAccount(accountid)
+        if not self.gateway.stock_trading:
+            self.xt_account = StockAccount(accountid, account_type="FUTURE")
+        else:
+            self.xt_account = StockAccount(accountid)
 
         # 注册回调接口
         self.xt_client.register_callback(self)
