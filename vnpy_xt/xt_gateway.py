@@ -38,6 +38,7 @@ from vnpy.trader.object import (
     BarData,
     HistoryRequest,
     OptionType,
+    Offset
 )
 from vnpy.trader.constant import (
     OrderType,
@@ -696,6 +697,14 @@ class XtTdApi(XtQuantTraderCallback):
         if not contract:
             self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
             return ""
+
+        if not self.gateway.stock_trading and req.offset == Offset.NONE:
+            self.gateway.write_log("委托失败，期货交易需要选择开平方向")
+            return
+
+        if self.gateway.stock_trading and req.offset != Offset.NONE:
+            self.gateway.write_log("委托失败，股票交易不需要选择开平方向")
+            return
 
         if req.type not in {OrderType.LIMIT, OrderType.MARKET}:
             self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
