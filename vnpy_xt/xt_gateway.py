@@ -249,7 +249,7 @@ class XtMdApi:
             for d in buf:
                 xt_symbol: str = next(iter(data.keys()))
                 symbol, xt_exchange = xt_symbol.split(".")
-                exchange = EXCHANGE_XT2VT[xt_exchange]
+                exchange = MDEXCHANGE_XT2VT[xt_exchange]
 
                 tick: TickData = TickData(
                     symbol=symbol,
@@ -405,7 +405,7 @@ class XtMdApi:
         if req.vt_symbol not in symbol_contract_map:
             return
 
-        xt_symbol: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+        xt_symbol: str = req.symbol + "." + MDEXCHANGE_VT2XT[req.exchange]
         if xt_symbol not in self.subscribed:
             subscribe_quote(stock_code=xt_symbol, period="tick", callback=self.onMarketData)
             self.subscribed.add(xt_symbol)
