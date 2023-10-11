@@ -371,7 +371,7 @@ class XtMdApi:
 
             contract: ContractData = ContractData(
                 symbol=symbol,
-                exchange=EXCHANGE_XT2VT[xt_exchange],
+                exchange=MDEXCHANGE_XT2VT[xt_exchange],
                 name=data["InstrumentName"],
                 product=product,
                 size=data["VolumeMultiple"],
@@ -397,11 +397,11 @@ class XtMdApi:
             product = None
             symbol, xt_exchange = xt_symbol.split(".")
 
-            if xt_exchange == "CZCE" and len(symbol) > 6 and "&" not in symbol:
+            if xt_exchange == "ZF" and len(symbol) > 6 and "&" not in symbol:
                 product = Product.OPTION
-            elif xt_exchange in ("CFFEX", "GFEX") and "-" in symbol:
+            elif xt_exchange in ("IF", "GF") and "-" in symbol:
                 product = Product.OPTION
-            elif xt_exchange in ("DCE", "INE", "SHFE") and ("C" in symbol or "P" in symbol) and "SP" not in symbol:
+            elif xt_exchange in ("DF", "INE", "SF") and ("C" in symbol or "P" in symbol) and "SP" not in symbol:
                 product = Product.OPTION
             else:
                 product = Product.FUTURES
@@ -417,7 +417,7 @@ class XtMdApi:
 
             contract: ContractData = ContractData(
                 symbol=symbol,
-                exchange=EXCHANGE_XT2VT[xt_exchange],
+                exchange=MDEXCHANGE_XT2VT[xt_exchange],
                 name=data["InstrumentName"],
                 product=product,
                 size=data["VolumeMultiple"],
