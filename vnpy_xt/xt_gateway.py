@@ -102,13 +102,13 @@ DIRECTION_VT2XT: Dict[tuple, int] = {
     (Direction.LONG, Offset.CLOSEYESTERDAY): FUTURE_CLOSE_SHORT_HISTORY,
     (Direction.SHORT, Offset.CLOSEYESTERDAY): FUTURE_CLOSE_LONG_HISTORY,
 }
+DIRECTION_XT2VT: Dict[int, Direction] = {
+    DIRECTION_FLAG_BUY: Direction.LONG,
+    DIRECTION_FLAG_SELL: Direction.SHORT
+}
 STKDIRECTION_XT2VT: Dict[int, Direction] = {
     STOCK_BUY: Direction.LONG,
     STOCK_SELL: Direction.SHORT
-}
-POSDIRECTION_XT2VT: Dict[int, Direction] = {
-    DIRECTION_FLAG_BUY: Direction.LONG,
-    DIRECTION_FLAG_SELL: Direction.SHORT
 }
 FUTOFFSET_XT2VT: Dict[int, Offset] = {
     23: Offset.OPEN,
@@ -702,7 +702,7 @@ class XtTdApi(XtQuantTraderCallback):
             if self.gateway.stock_trading:
                 direction = Direction.NET
             else:
-                direction = POSDIRECTION_XT2VT[xt_position.direction]
+                direction = DIRECTION_XT2VT[xt_position.direction]
 
             position: PositionData = PositionData(
                 symbol=symbol,
