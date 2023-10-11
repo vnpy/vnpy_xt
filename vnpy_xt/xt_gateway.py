@@ -742,7 +742,7 @@ class XtTdApi(XtQuantTraderCallback):
         """委托下单"""
         contract: ContractData = symbol_contract_map.get(req.vt_symbol, None)
         if not contract:
-            self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
+            self.gateway.write_log(f"委托失败，找不到该合约：{req.vt_symbol}")
             return ""
 
         if not self.gateway.stock_trading and req.offset == Offset.NONE:
@@ -754,7 +754,7 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         if req.type not in {OrderType.LIMIT, OrderType.MARKET}:
-            self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
+            self.gateway.write_log(f"委托失败，不支持的委托类型: {req.type.value}")
             return ""
 
         if self.gateway.stock_trading and req.exchange in (Exchange.SSE, Exchange.SZSE):
@@ -762,7 +762,7 @@ class XtTdApi(XtQuantTraderCallback):
         elif req.type == OrderType.LIMIT:
             ordertype = FIX_PRICE
         else:
-            self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
+            self.gateway.write_log(f"委托失败，不支持的委托类型: {req.type.value}")
             return ""
 
         stock_code: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
