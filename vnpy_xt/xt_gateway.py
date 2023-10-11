@@ -443,7 +443,7 @@ class XtMdApi:
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
-        if req.symbol not in symbol_contract_map:
+        if req.vt_symbol not in symbol_contract_map:
             return
 
         xt_symbol: str = req.symbol + "." + MDEXCHANGE_VT2XT[req.exchange]
@@ -459,7 +459,7 @@ class XtMdApi:
         interval: Interval = req.interval
 
         # 检查是否支持该数据
-        if req.symbol not in symbol_contract_map:
+        if req.vt_symbol not in symbol_contract_map:
             self.gateway.write_log(f"获取K线数据失败，找不到{req.vt_symbol}合约")
             return history
 
@@ -740,7 +740,7 @@ class XtTdApi(XtQuantTraderCallback):
 
     def send_order(self, req: OrderRequest) -> str:
         """委托下单"""
-        contract: ContractData = symbol_contract_map.get(req.symbol, None)
+        contract: ContractData = symbol_contract_map.get(req.vt_symbol, None)
         if not contract:
             self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
             return ""
