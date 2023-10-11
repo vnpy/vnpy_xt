@@ -158,14 +158,6 @@ MDEXCHANGE_VT2XT: Dict[str, Exchange] = {
     Exchange.GFEX: "GF",
 }
 MDEXCHANGE_XT2VT: Dict[str, Exchange] = {v: k for k, v in MDEXCHANGE_VT2XT.items()}
-MDEXCHANGE_XT2XT: Dict[str, str] = {
-    "CFFEX": "IF",
-    "SHFE": "SF",
-    "INE": "INE",
-    "DCE": "DF",
-    "CZCE": "ZF",
-    "GFEX": "GF"
-}
 
 # 数据频率映射
 INTERVAL_VT2XT = {
@@ -404,8 +396,6 @@ class XtMdApi:
             # 筛选需要的合约
             product = None
             symbol, xt_exchange = xt_symbol.split(".")
-            md_exchange: str = MDEXCHANGE_XT2XT[xt_exchange]
-            xt_symbol = xt_symbol.replace(xt_exchange, md_exchange)
 
             if xt_exchange == "CZCE" and len(symbol) > 6 and "&" not in symbol:
                 product = Product.OPTION
