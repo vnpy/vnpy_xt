@@ -334,7 +334,10 @@ class XtMdApi:
             self.query_stock_contracts()
         else:
             self.query_future_contracts()
+
         self.gateway.write_log("合约信息查询成功")
+        self.gateway.td_api.query_order()
+        self.gateway.td_api.query_trade()
 
     def query_stock_contracts(self) -> None:
         """查询股票合约信息"""
@@ -842,12 +845,6 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         self.gateway.write_log("交易接口订阅成功")
-
-        # 初始化数据查询
-        self.query_account()
-        self.query_position()
-        self.query_order()
-        self.query_trade()
 
     def close(self) -> None:
         """关闭连接"""
