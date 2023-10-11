@@ -380,7 +380,7 @@ class XtMdApi:
                 gateway_name=self.gateway_name
             )
 
-            symbol_contract_map[symbol] = contract
+            symbol_contract_map[vt_symbol] = contract
             self.gateway.on_contract(contract)
 
     def query_future_contracts(self) -> None:
