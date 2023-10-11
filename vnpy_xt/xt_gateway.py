@@ -605,7 +605,7 @@ class XtTdApi(XtQuantTraderCallback):
             direction = STKDIRECTION_XT2VT[xt_order.order_type]
             offset = Offset.NONE
         else:
-            direction = Direction.LONG      # 等增加方向字段后再修复
+            direction = DIRECTION_XT2VT[xt_order.direction]
             offset = FUTOFFSET_XT2VT.get(xt_order.order_type, Offset.CLOSE)
 
         order: OrderData = OrderData(
@@ -663,7 +663,7 @@ class XtTdApi(XtQuantTraderCallback):
             direction = STKDIRECTION_XT2VT[xt_trade.order_type]
             offset = Offset.NONE
         else:
-            direction = Direction.LONG      # 等增加方向字段后再修复
+            direction = DIRECTION_XT2VT[xt_trade.direction]
             offset = FUTOFFSET_XT2VT.get(xt_trade.order_type, Offset.CLOSE)
 
         trade: TradeData = TradeData(
