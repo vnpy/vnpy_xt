@@ -309,7 +309,7 @@ class XtMdApi:
                     gateway_name=self.gateway_name
                 )
 
-                contract = symbol_contract_map[tick.symbol]
+                contract = symbol_contract_map[tick.vt_symbol]
                 tick.name = contract.name
 
                 tick.bid_price_1, tick.bid_price_2, tick.bid_price_3, tick.bid_price_4, tick.bid_price_5 = d["bidPrice"]
@@ -380,7 +380,7 @@ class XtMdApi:
                 gateway_name=self.gateway_name
             )
 
-            symbol_contract_map[vt_symbol] = contract
+            symbol_contract_map[contract.vt_symbol] = contract
             self.gateway.on_contract(contract)
 
     def query_future_contracts(self) -> None:
@@ -438,7 +438,7 @@ class XtMdApi:
                 contract.option_listed = datetime.strptime(data["OpenDate"], "%Y%m%d")
                 contract.option_expiry = datetime.strptime(data["ExpireDate"], "%Y%m%d")
 
-            symbol_contract_map[symbol] = contract
+            symbol_contract_map[contract.vt_symbol] = contract
             self.gateway.on_contract(contract)
 
     def subscribe(self, req: SubscribeRequest) -> None:
