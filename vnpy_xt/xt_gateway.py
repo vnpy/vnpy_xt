@@ -102,13 +102,13 @@ DIRECTION_VT2XT: Dict[tuple, int] = {
     (Direction.LONG, Offset.CLOSEYESTERDAY): FUTURE_CLOSE_SHORT_HISTORY,
     (Direction.SHORT, Offset.CLOSEYESTERDAY): FUTURE_CLOSE_LONG_HISTORY,
 }
+DIRECTION_XT2VT: Dict[int, Direction] = {
+    DIRECTION_FLAG_BUY: Direction.LONG,
+    DIRECTION_FLAG_SELL: Direction.SHORT
+}
 STKDIRECTION_XT2VT: Dict[int, Direction] = {
     STOCK_BUY: Direction.LONG,
     STOCK_SELL: Direction.SHORT
-}
-POSDIRECTION_XT2VT: Dict[int, Direction] = {
-    DIRECTION_FLAG_BUY: Direction.LONG,
-    DIRECTION_FLAG_SELL: Direction.SHORT
 }
 FUTOFFSET_XT2VT: Dict[int, Offset] = {
     23: Offset.OPEN,
@@ -158,14 +158,6 @@ MDEXCHANGE_VT2XT: Dict[str, Exchange] = {
     Exchange.GFEX: "GF",
 }
 MDEXCHANGE_XT2VT: Dict[str, Exchange] = {v: k for k, v in MDEXCHANGE_VT2XT.items()}
-MDEXCHANGE_XT2XT: Dict[str, str] = {
-    "CFFEX": "IF",
-    "SHFE": "SF",
-    "INE": "INE",
-    "DCE": "DF",
-    "CZCE": "ZF",
-    "GFEX": "GF"
-}
 
 # 数据频率映射
 INTERVAL_VT2XT = {
@@ -342,7 +334,10 @@ class XtMdApi:
             self.query_stock_contracts()
         else:
             self.query_future_contracts()
+
         self.gateway.write_log("合约信息查询成功")
+        self.gateway.td_api.query_order()
+        self.gateway.td_api.query_trade()
 
     def query_stock_contracts(self) -> None:
         """查询股票合约信息"""
@@ -379,7 +374,7 @@ class XtMdApi:
 
             contract: ContractData = ContractData(
                 symbol=symbol,
-                exchange=EXCHANGE_XT2VT[xt_exchange],
+                exchange=MDEXCHANGE_XT2VT[xt_exchange],
                 name=data["InstrumentName"],
                 product=product,
                 size=data["VolumeMultiple"],
@@ -404,14 +399,12 @@ class XtMdApi:
             # 筛选需要的合约
             product = None
             symbol, xt_exchange = xt_symbol.split(".")
-            md_exchange: str = MDEXCHANGE_XT2XT[xt_exchange]
-            xt_symbol = xt_symbol.replace(xt_exchange, md_exchange)
 
-            if xt_exchange == "CZCE" and len(symbol) > 6 and "&" not in symbol:
+            if xt_exchange == "ZF" and len(symbol) > 6 and "&" not in symbol:
                 product = Product.OPTION
-            elif xt_exchange in ("CFFEX", "GFEX") and "-" in symbol:
+            elif xt_exchange in ("IF", "GF") and "-" in symbol:
                 product = Product.OPTION
-            elif xt_exchange in ("DCE", "INE", "SHFE") and ("C" in symbol or "P" in symbol) and "SP" not in symbol:
+            elif xt_exchange in ("DF", "INE", "SF") and ("C" in symbol or "P" in symbol) and "SP" not in symbol:
                 product = Product.OPTION
             else:
                 product = Product.FUTURES
@@ -427,7 +420,7 @@ class XtMdApi:
 
             contract: ContractData = ContractData(
                 symbol=symbol,
-                exchange=EXCHANGE_XT2VT[xt_exchange],
+                exchange=MDEXCHANGE_XT2VT[xt_exchange],
                 name=data["InstrumentName"],
                 product=product,
                 size=data["VolumeMultiple"],
@@ -605,7 +598,7 @@ class XtTdApi(XtQuantTraderCallback):
             direction = STKDIRECTION_XT2VT[xt_order.order_type]
             offset = Offset.NONE
         else:
-            direction = Direction.LONG      # 等增加方向字段后再修复
+            direction = DIRECTION_XT2VT[xt_order.direction]
             offset = FUTOFFSET_XT2VT.get(xt_order.order_type, Offset.CLOSE)
 
         order: OrderData = OrderData(
@@ -663,7 +656,7 @@ class XtTdApi(XtQuantTraderCallback):
             direction = STKDIRECTION_XT2VT[xt_trade.order_type]
             offset = Offset.NONE
         else:
-            direction = Direction.LONG      # 等增加方向字段后再修复
+            direction = DIRECTION_XT2VT[xt_trade.direction]
             offset = FUTOFFSET_XT2VT.get(xt_trade.order_type, Offset.CLOSE)
 
         trade: TradeData = TradeData(
@@ -702,7 +695,7 @@ class XtTdApi(XtQuantTraderCallback):
             if self.gateway.stock_trading:
                 direction = Direction.NET
             else:
-                direction = POSDIRECTION_XT2VT[xt_position.direction]
+                direction = DIRECTION_XT2VT[xt_position.direction]
 
             position: PositionData = PositionData(
                 symbol=symbol,
@@ -752,7 +745,7 @@ class XtTdApi(XtQuantTraderCallback):
         """委托下单"""
         contract: ContractData = symbol_contract_map.get(req.vt_symbol, None)
         if not contract:
-            self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
+            self.gateway.write_log(f"委托失败，找不到该合约：{req.vt_symbol}")
             return ""
 
         if not self.gateway.stock_trading and req.offset == Offset.NONE:
@@ -764,7 +757,7 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         if req.type not in {OrderType.LIMIT, OrderType.MARKET}:
-            self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
+            self.gateway.write_log(f"委托失败，不支持的委托类型: {req.type.value}")
             return ""
 
         if self.gateway.stock_trading and req.exchange in (Exchange.SSE, Exchange.SZSE):
@@ -772,7 +765,7 @@ class XtTdApi(XtQuantTraderCallback):
         elif req.type == OrderType.LIMIT:
             ordertype = FIX_PRICE
         else:
-            self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
+            self.gateway.write_log(f"委托失败，不支持的委托类型: {req.type.value}")
             return ""
 
         stock_code: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
@@ -852,12 +845,6 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         self.gateway.write_log("交易接口订阅成功")
-
-        # 初始化数据查询
-        self.query_account()
-        self.query_position()
-        self.query_order()
-        self.query_trade()
 
     def close(self) -> None:
         """关闭连接"""
