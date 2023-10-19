@@ -48,6 +48,8 @@ class XtDatafeed(BaseDatafeed):
         """"""
         self.inited: bool = False
 
+        self.bidding_bar: BarData = None
+
     def init(self, output: Callable = print) -> bool:
         """初始化"""
         if self.inited:
@@ -95,7 +97,16 @@ class XtDatafeed(BaseDatafeed):
                     continue
             # 分钟线过滤开盘脏前数据
             else:
-                if req.exchange in (Exchange.SSE, Exchange.SZSE) and dt.time() < time(hour=9, minute=30):
+                if req.exchange in (Exchange.SSE, Exchange.SZSE, Exchange.BSE, Exchange.CFFEX) and dt.time() < time(hour=9, minute=30):
+                    self.bidding_bar = BarData(
+                        symbol=req.symbol,
+                        exchange=req.exchange,
+                        datetime=dt,
+                        open_price=float(tp.open),
+                        volume=float(tp.volume),
+                        turnover=float(tp.amount),
+                        gateway_name="XT"
+                    )
                     continue
 
             bar: BarData = BarData(
@@ -112,6 +123,12 @@ class XtDatafeed(BaseDatafeed):
                 close_price=float(tp.close),
                 gateway_name="XT"
             )
+            
+            if self.bidding_bar:
+                bar.volume += self.bidding_bar.volume
+                bar.turnover += self.bidding_bar.turnover
+                bar.open_price = self.bidding_bar.open_price
+                self.bidding_bar = None
 
             history.append(bar)
 
@@ -208,8 +225,11 @@ def get_history_dataframe(req: HistoryRequest, output: Callable = print):
     start: str = start.strftime("%Y%m%d%H%M%S")
     end: str = end.strftime("%Y%m%d%H%M%S")
 
+    if exchange in (Exchange.SSE, Exchange.SZSE) and len(symbol) > 6:
+        xt_symbol += "O"
+
     download_history_data(xt_symbol, xt_interval, start, end)
-    data: dict = get_local_data([], [xt_symbol], xt_interval, start, end, -1, "front_ratio")      # 默认等比前复权
+    data: dict = get_local_data([], [xt_symbol], xt_interval, start, end, -1, "front_ratio", False)      # 默认等比前复权
 
     df: DataFrame = data[xt_symbol]
 
