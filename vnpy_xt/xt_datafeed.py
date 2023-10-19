@@ -226,7 +226,7 @@ def get_history_dataframe(req: HistoryRequest, output: Callable = print):
     end: str = end.strftime("%Y%m%d%H%M%S")
 
     download_history_data(xt_symbol, xt_interval, start, end)
-    data: dict = get_local_data([], [xt_symbol], xt_interval, start, end, -1, "front_ratio")      # 默认等比前复权
+    data: dict = get_local_data([], [xt_symbol], xt_interval, start, end, -1, "front_ratio", False)      # 默认等比前复权
 
     df: DataFrame = data[xt_symbol]
 
