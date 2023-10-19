@@ -285,6 +285,7 @@ class XtMdApi:
 
         self.inited: bool = False
         self.subscribed: set = set()
+        self.bidding_bar: BarData = None
 
     def onMarketData(self, data: dict) -> None:
         """行情推送回调"""
@@ -503,7 +504,16 @@ class XtMdApi:
                     continue
             # 分钟线过滤开盘脏前数据
             else:
-                if exchange in (Exchange.SSE, Exchange.SZSE, Exchange.BSE) and dt.time() < time(hour=9, minute=30):
+                if exchange in (Exchange.SSE, Exchange.SZSE, Exchange.BSE, Exchange.CFFEX) and dt.time() < time(hour=9, minute=30):
+                    self.bidding_bar = BarData(
+                        symbol=req.symbol,
+                        exchange=req.exchange,
+                        datetime=dt,
+                        open_price=float(tp.open),
+                        volume=float(tp.volume),
+                        turnover=float(tp.amount),
+                        gateway_name="XT"
+                    )
                     continue
 
             bar: BarData = BarData(
@@ -520,6 +530,13 @@ class XtMdApi:
                 close_price=float(tp.close),
                 gateway_name=self.gateway_name
             )
+
+            if self.bidding_bar:
+                bar.volume += self.bidding_bar.volume
+                bar.turnover += self.bidding_bar.turnover
+                bar.open_price = self.bidding_bar.open_price
+                self.bidding_bar = None
+
             history.append(bar)
 
         # 输出日志信息
