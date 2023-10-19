@@ -225,6 +225,9 @@ def get_history_dataframe(req: HistoryRequest, output: Callable = print):
     start: str = start.strftime("%Y%m%d%H%M%S")
     end: str = end.strftime("%Y%m%d%H%M%S")
 
+    if exchange in (Exchange.SSE, Exchange.SZSE) and len(symbol) > 6:
+        xt_symbol += "O"
+
     download_history_data(xt_symbol, xt_interval, start, end)
     data: dict = get_local_data([], [xt_symbol], xt_interval, start, end, -1, "front_ratio", False)      # 默认等比前复权
 
