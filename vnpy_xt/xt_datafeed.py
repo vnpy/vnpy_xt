@@ -1,8 +1,7 @@
 from datetime import datetime, timedelta, time
-from typing import Dict, List, Optional, Callable
+from typing import Optional, Callable
 
 from pandas import DataFrame
-
 from xtquant.xtdata import (
     get_local_data,
     download_history_data,
@@ -15,18 +14,18 @@ from vnpy.trader.utility import ZoneInfo
 from vnpy.trader.datafeed import BaseDatafeed
 
 
-INTERVAL_VT2XT: Dict[Interval, str] = {
+INTERVAL_VT2XT: dict[Interval, str] = {
     Interval.MINUTE: "1m",
     Interval.DAILY: "1d",
     Interval.TICK: "tick"
 }
 
-INTERVAL_ADJUSTMENT_MAP: Dict[Interval, timedelta] = {
+INTERVAL_ADJUSTMENT_MAP: dict[Interval, timedelta] = {
     Interval.MINUTE: timedelta(minutes=1),
-    Interval.DAILY: timedelta()         # no need to adjust for daily bar
+    Interval.DAILY: timedelta()         # 日线无需进行调整
 }
 
-EXCHANGE_VT2XT: Dict[str, Exchange] = {
+EXCHANGE_VT2XT: dict[str, Exchange] = {
     Exchange.SSE: "SH",
     Exchange.SZSE: "SZ",
     Exchange.BSE: "BJ",
@@ -42,13 +41,11 @@ CHINA_TZ = ZoneInfo("Asia/Shanghai")
 
 
 class XtDatafeed(BaseDatafeed):
-    """XtData数据服务接口"""
+    """迅投研数据服务接口"""
 
     def __init__(self):
         """"""
         self.inited: bool = False
-
-        self.bidding_bar: BarData = None
 
     def init(self, output: Callable = print) -> bool:
         """初始化"""
@@ -58,36 +55,37 @@ class XtDatafeed(BaseDatafeed):
         try:
             get_period_list()
         except Exception as ex:
-            output(f"发生异常：{ex}")
+            output(f"迅投研数据服务初始化失败，发生异常：{ex}")
             return False
 
         self.inited = True
         return True
 
-    def query_bar_history(self, req: HistoryRequest, output: Callable = print) -> Optional[List[BarData]]:
+    def query_bar_history(self, req: HistoryRequest, output: Callable = print) -> Optional[list[BarData]]:
         """查询K线数据"""
-        history: List[BarData] = []
+        history: list[BarData] = []
 
         if not self.inited:
             n: bool = self.init(output)
             if not n:
                 return history
 
-        df: DataFrame = get_history_dataframe(req, output)
+        df: DataFrame = get_history_df(req, output)
         if df.empty:
             return history
 
         adjustment: timedelta = INTERVAL_ADJUSTMENT_MAP[req.interval]
 
         # 遍历解析
-        for tp in df.itertuples():
+        auction_bar: BarData = None
 
-            # 为了xtdata时间戳（K线结束时点）转换为VeighNa时间戳（K线开始时点）
+        for tp in df.itertuples():
+            # 将迅投研时间戳（K线结束时点）转换为VeighNa时间戳（K线开始时点）
             dt: datetime = datetime.fromtimestamp(tp.time / 1000)
             dt = dt.replace(tzinfo=CHINA_TZ)
             dt = dt - adjustment
 
-            # 日线过滤尚未走完的当日数据
+            # 日线，过滤尚未走完的当日数据
             if req.interval == Interval.DAILY:
                 incomplete_bar: bool = (
                     dt.date() == datetime.now().date()
@@ -95,10 +93,13 @@ class XtDatafeed(BaseDatafeed):
                 )
                 if incomplete_bar:
                     continue
-            # 分钟线过滤开盘脏前数据
+            # 分钟线，过滤盘前集合竞价数据（合并到开盘后第1根K线中）
             else:
-                if req.exchange in (Exchange.SSE, Exchange.SZSE, Exchange.BSE, Exchange.CFFEX) and dt.time() < time(hour=9, minute=30):
-                    self.bidding_bar = BarData(
+                if (
+                    req.exchange in (Exchange.SSE, Exchange.SZSE, Exchange.BSE, Exchange.CFFEX)
+                    and dt.time() < time(hour=9, minute=30)
+                ):
+                    auction_bar = BarData(
                         symbol=req.symbol,
                         exchange=req.exchange,
                         datetime=dt,
@@ -109,6 +110,7 @@ class XtDatafeed(BaseDatafeed):
                     )
                     continue
 
+            # 生成K线对象
             bar: BarData = BarData(
                 symbol=req.symbol,
                 exchange=req.exchange,
@@ -123,33 +125,33 @@ class XtDatafeed(BaseDatafeed):
                 close_price=float(tp.close),
                 gateway_name="XT"
             )
-            
-            if self.bidding_bar:
-                bar.volume += self.bidding_bar.volume
-                bar.turnover += self.bidding_bar.turnover
-                bar.open_price = self.bidding_bar.open_price
-                self.bidding_bar = None
+
+            # 合并集合竞价数据
+            if auction_bar:
+                bar.open_price = auction_bar.open_price
+                bar.volume += auction_bar.volume
+                bar.turnover += auction_bar.turnover
+                auction_bar = None
 
             history.append(bar)
 
         return history
 
-    def query_tick_history(self, req: HistoryRequest, output: Callable = print) -> Optional[List[TickData]]:
+    def query_tick_history(self, req: HistoryRequest, output: Callable = print) -> Optional[list[TickData]]:
         """查询Tick数据"""
-        history: List[TickData] = []
+        history: list[TickData] = []
 
         if not self.inited:
             n: bool = self.init(output)
             if not n:
                 return history
 
-        df: DataFrame = get_history_dataframe(req, output)
+        df: DataFrame = get_history_df(req, output)
         if df.empty:
             return history
 
         # 遍历解析
         for tp in df.itertuples():
-
             dt: datetime = datetime.fromtimestamp(tp.time / 1000)
             dt = dt.replace(tzinfo=CHINA_TZ)
 
@@ -199,10 +201,8 @@ class XtDatafeed(BaseDatafeed):
         return history
 
 
-def get_history_dataframe(req: HistoryRequest, output: Callable = print):
+def get_history_df(req: HistoryRequest, output: Callable = print) -> DataFrame:
     """获取历史数据DataFrame"""
-    df: DataFrame = DataFrame()
-
     symbol: str = req.symbol
     exchange: Exchange = req.exchange
     start: datetime = req.start
@@ -214,8 +214,8 @@ def get_history_dataframe(req: HistoryRequest, output: Callable = print):
 
     xt_interval: str = INTERVAL_VT2XT.get(interval, None)
     if not xt_interval:
-        output(f"XtData查询历史数据失败：不支持的时间周期{interval.value}")
-        return df
+        output(f"讯投研查询历史数据失败：不支持的时间周期{interval.value}")
+        return DataFrame()
 
     # 为了查询夜盘数据
     end += timedelta(1)
@@ -232,5 +232,4 @@ def get_history_dataframe(req: HistoryRequest, output: Callable = print):
     data: dict = get_local_data([], [xt_symbol], xt_interval, start, end, -1, "front_ratio", False)      # 默认等比前复权
 
     df: DataFrame = data[xt_symbol]
-
     return df
