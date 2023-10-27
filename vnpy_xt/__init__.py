@@ -1,4 +1,9 @@
-from .xt_gateway import XtGateway
+import importlib_metadata
+
+from .xt_datafeed import XtDatafeed as Datafeed
 
 
-__version__ = "1.0.0"
+try:
+    __version__ = importlib_metadata.version("vnpy_xt")
+except importlib_metadata.PackageNotFoundError:
+    __version__ = "dev"
