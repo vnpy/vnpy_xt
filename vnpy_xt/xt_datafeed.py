@@ -5,12 +5,14 @@ from pandas import DataFrame
 from xtquant.xtdata import (
     get_local_data,
     download_history_data,
-    get_period_list
+    get_instrument_detail
 )
+from xtquant import xtdatacenter as xtdc
 
+from vnpy.trader.setting import SETTINGS
 from vnpy.trader.constant import Exchange, Interval
 from vnpy.trader.object import BarData, TickData, HistoryRequest
-from vnpy.trader.utility import ZoneInfo
+from vnpy.trader.utility import ZoneInfo, TEMP_DIR
 from vnpy.trader.datafeed import BaseDatafeed
 
 
@@ -45,7 +47,10 @@ class XtDatafeed(BaseDatafeed):
 
     def __init__(self):
         """"""
+        self.username: str = SETTINGS["datafeed.username"]
+        self.password: str = SETTINGS["datafeed.password"]
         self.inited: bool = False
+        self.password = "4aebb9927879326eb2be5e97542853a0b9b9ddd2"
 
     def init(self, output: Callable = print) -> bool:
         """初始化"""
@@ -53,7 +58,13 @@ class XtDatafeed(BaseDatafeed):
             return True
 
         try:
-            get_period_list()
+            if self.username != "client":
+                # 使用Token连接，无需启动客户端
+                xtdc.set_token(self.password)
+                xtdc.set_data_home_dir(str(TEMP_DIR) + "\\xt")
+                xtdc.init()
+            
+            get_instrument_detail("000001.SZ")
         except Exception as ex:
             output(f"迅投研数据服务初始化失败，发生异常：{ex}")
             return False
