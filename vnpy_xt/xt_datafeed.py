@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, time
 from typing import Optional, Callable
+from pathlib import Path
 
 from pandas import DataFrame
 from xtquant.xtdata import (
@@ -58,12 +59,16 @@ class XtDatafeed(BaseDatafeed):
             return True
 
         try:
+            # 使用Token连接，无需启动客户端
             if self.username != "client":
-                # 使用Token连接，无需启动客户端
                 xtdc.set_token(self.password)
-                xtdc.set_data_home_dir(str(TEMP_DIR) + "\\xt")
+
+                now: datetime = datetime.now()
+                home_dir: Path = TEMP_DIR.joinpath("xt").joinpath(now.strftime("%Y%m%d%H%M%S%f"))
+                xtdc.set_data_home_dir(str(home_dir))
+
                 xtdc.init()
-            
+
             get_instrument_detail("000001.SZ")
         except Exception as ex:
             output(f"迅投研数据服务初始化失败，发生异常：{ex}")
