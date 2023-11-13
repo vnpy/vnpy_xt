@@ -51,7 +51,6 @@ class XtDatafeed(BaseDatafeed):
         self.username: str = SETTINGS["datafeed.username"]
         self.password: str = SETTINGS["datafeed.password"]
         self.inited: bool = False
-        self.password = "4aebb9927879326eb2be5e97542853a0b9b9ddd2"
 
     def init(self, output: Callable = print) -> bool:
         """初始化"""

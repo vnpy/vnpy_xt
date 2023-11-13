@@ -7,7 +7,10 @@ from vnpy_ctp import CtpGateway
 from vnpy_datamanager import DataManagerApp
 
 
+# 配置datafeed相关信息，也可以通过vt_setting.json全局文件配置
 SETTINGS["datafeed.name"] = "xt"
+SETTINGS["datafeed.username"] = "token"
+SETTINGS["datafeed.password"] = "xxx"
 
 
 def main():
