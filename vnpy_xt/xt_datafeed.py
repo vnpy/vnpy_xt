@@ -74,6 +74,9 @@ class XtDatafeed(BaseDatafeed):
                 ]
                 xtdc.set_allow_optmize_address(server_list)
 
+                # 开启使用期货真实夜盘时间
+                xtdc.set_future_realtime_mode(True)
+
                 xtdc.init()
 
             get_instrument_detail("000001.SZ")
