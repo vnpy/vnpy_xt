@@ -14,7 +14,7 @@ from xtquant import xtdatacenter as xtdc
 from vnpy.trader.setting import SETTINGS
 from vnpy.trader.constant import Exchange, Interval
 from vnpy.trader.object import BarData, TickData, HistoryRequest
-from vnpy.trader.utility import ZoneInfo, TEMP_DIR
+from vnpy.trader.utility import ZoneInfo
 from vnpy.trader.datafeed import BaseDatafeed
 
 
@@ -128,7 +128,10 @@ class XtDatafeed(BaseDatafeed):
             else:
                 if (
                     req.exchange in (Exchange.SSE, Exchange.SZSE, Exchange.BSE, Exchange.CFFEX)
-                    and dt.time() < time(hour=9, minute=30)
+                    and dt.time() == time(hour=9, minute=29)
+                ) or (
+                    req.exchange in (Exchange.SHFE, Exchange.INE, Exchange.DCE, Exchange.CZCE, Exchange.GFEX)
+                    and dt.time() in (time(hour=8, minute=59), time(hour=20, minute=59))
                 ):
                     auction_bar = BarData(
                         symbol=req.symbol,
