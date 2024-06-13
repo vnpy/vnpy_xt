@@ -62,11 +62,8 @@ class XtDatafeed(BaseDatafeed):
         try:
             # 使用Token连接，无需启动客户端
             if self.username != "client":
+                # 设置token
                 xtdc.set_token(self.password)
-
-                now: datetime = datetime.now()
-                home_dir: Path = TEMP_DIR.joinpath("xt").joinpath(now.strftime("%Y%m%d%H%M%S%f"))
-                xtdc.set_data_home_dir(str(home_dir))
 
                 xtdc.init()
 
