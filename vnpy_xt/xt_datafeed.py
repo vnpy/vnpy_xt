@@ -65,6 +65,15 @@ class XtDatafeed(BaseDatafeed):
                 # 设置token
                 xtdc.set_token(self.password)
 
+                # 设置连接池
+                server_list: list = [
+                    "115.231.218.73:55310",
+                    "115.231.218.79:55310",
+                    "218.16.123.11:55310",
+                    "218.16.123.27:55310"
+                ]
+                xtdc.set_allow_optmize_address(server_list)
+
                 xtdc.init()
 
             get_instrument_detail("000001.SZ")
