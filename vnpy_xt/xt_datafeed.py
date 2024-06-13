@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta, time
 from typing import Optional, Callable
 
@@ -77,7 +78,11 @@ class XtDatafeed(BaseDatafeed):
                 # 开启使用期货真实夜盘时间
                 xtdc.set_future_realtime_mode(True)
 
-                xtdc.init()
+                if bool(re.match("^\\d+$", self.username)):
+                    xtdc.init(False)
+                    xtdc.listen(port=int(self.username))
+                else:
+                    xtdc.init()
 
             get_instrument_detail("000001.SZ")
         except Exception as ex:
