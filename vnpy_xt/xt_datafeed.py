@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, time
 from typing import Optional, Callable
-from pathlib import Path
 
 from pandas import DataFrame
+from xtquant import xtdata
 from xtquant.xtdata import (
     get_local_data,
     download_history_data,
@@ -28,7 +28,7 @@ INTERVAL_ADJUSTMENT_MAP: dict[Interval, timedelta] = {
     Interval.DAILY: timedelta()         # 日线无需进行调整
 }
 
-EXCHANGE_VT2XT: dict[str, Exchange] = {
+EXCHANGE_VT2XT: dict[Exchange, str] = {
     Exchange.SSE: "SH",
     Exchange.SZSE: "SZ",
     Exchange.BSE: "BJ",
@@ -51,6 +51,8 @@ class XtDatafeed(BaseDatafeed):
         self.username: str = SETTINGS["datafeed.username"]
         self.password: str = SETTINGS["datafeed.password"]
         self.inited: bool = False
+
+        xtdata.enable_hello = False
 
     def init(self, output: Callable = print) -> bool:
         """初始化"""
