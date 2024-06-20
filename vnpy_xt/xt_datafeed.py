@@ -1,8 +1,9 @@
+import re
 from datetime import datetime, timedelta, time
 from typing import Optional, Callable
-from pathlib import Path
 
 from pandas import DataFrame
+from xtquant import xtdata
 from xtquant.xtdata import (
     get_local_data,
     download_history_data,
@@ -13,7 +14,7 @@ from xtquant import xtdatacenter as xtdc
 from vnpy.trader.setting import SETTINGS
 from vnpy.trader.constant import Exchange, Interval
 from vnpy.trader.object import BarData, TickData, HistoryRequest
-from vnpy.trader.utility import ZoneInfo, TEMP_DIR
+from vnpy.trader.utility import ZoneInfo
 from vnpy.trader.datafeed import BaseDatafeed
 
 
@@ -28,7 +29,7 @@ INTERVAL_ADJUSTMENT_MAP: dict[Interval, timedelta] = {
     Interval.DAILY: timedelta()         # 日线无需进行调整
 }
 
-EXCHANGE_VT2XT: dict[str, Exchange] = {
+EXCHANGE_VT2XT: dict[Exchange, str] = {
     Exchange.SSE: "SH",
     Exchange.SZSE: "SZ",
     Exchange.BSE: "BJ",
@@ -52,6 +53,8 @@ class XtDatafeed(BaseDatafeed):
         self.password: str = SETTINGS["datafeed.password"]
         self.inited: bool = False
 
+        xtdata.enable_hello = False
+
     def init(self, output: Callable = print) -> bool:
         """初始化"""
         if self.inited:
@@ -60,13 +63,26 @@ class XtDatafeed(BaseDatafeed):
         try:
             # 使用Token连接，无需启动客户端
             if self.username != "client":
+                # 设置token
                 xtdc.set_token(self.password)
 
-                now: datetime = datetime.now()
-                home_dir: Path = TEMP_DIR.joinpath("xt").joinpath(now.strftime("%Y%m%d%H%M%S%f"))
-                xtdc.set_data_home_dir(str(home_dir))
+                # 设置连接池
+                server_list: list = [
+                    "115.231.218.73:55310",
+                    "115.231.218.79:55310",
+                    "218.16.123.11:55310",
+                    "218.16.123.27:55310"
+                ]
+                xtdc.set_allow_optmize_address(server_list)
 
-                xtdc.init()
+                # 开启使用期货真实夜盘时间
+                xtdc.set_future_realtime_mode(True)
+
+                if bool(re.match("^\\d+$", self.username)):
+                    xtdc.init(False)
+                    xtdc.listen(port=int(self.username))
+                else:
+                    xtdc.init()
 
             get_instrument_detail("000001.SZ")
         except Exception as ex:
@@ -112,7 +128,10 @@ class XtDatafeed(BaseDatafeed):
             else:
                 if (
                     req.exchange in (Exchange.SSE, Exchange.SZSE, Exchange.BSE, Exchange.CFFEX)
-                    and dt.time() < time(hour=9, minute=30)
+                    and dt.time() == time(hour=9, minute=29)
+                ) or (
+                    req.exchange in (Exchange.SHFE, Exchange.INE, Exchange.DCE, Exchange.CZCE, Exchange.GFEX)
+                    and dt.time() in (time(hour=8, minute=59), time(hour=20, minute=59))
                 ):
                     auction_bar = BarData(
                         symbol=req.symbol,
