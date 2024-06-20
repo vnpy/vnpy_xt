@@ -6,11 +6,12 @@ from xtquant import (
     xtdata,
     xtdatacenter as xtdc
 )
+from filelock import FileLock, Timeout
 
 from vnpy.trader.setting import SETTINGS
 from vnpy.trader.constant import Exchange, Interval
 from vnpy.trader.object import BarData, TickData, HistoryRequest
-from vnpy.trader.utility import ZoneInfo
+from vnpy.trader.utility import ZoneInfo, get_file_path
 from vnpy.trader.datafeed import BaseDatafeed
 
 
@@ -43,11 +44,16 @@ CHINA_TZ = ZoneInfo("Asia/Shanghai")
 class XtDatafeed(BaseDatafeed):
     """迅投研数据服务接口"""
 
+    lock_filename = "xt_lock"
+    lock_filepath = get_file_path(lock_filename)
+
     def __init__(self):
         """"""
         self.username: str = SETTINGS["datafeed.username"]
         self.password: str = SETTINGS["datafeed.password"]
         self.inited: bool = False
+
+        self.lock: FileLock = None
 
         xtdata.enable_hello = False
 
@@ -59,26 +65,7 @@ class XtDatafeed(BaseDatafeed):
         try:
             # 使用Token连接，无需启动客户端
             if self.username != "client":
-                # 设置token
-                xtdc.set_token(self.password)
-
-                # 将VIP服务器设为连接池
-                server_list: list = [
-                    "115.231.218.73:55310",
-                    "115.231.218.79:55310",
-                    "218.16.123.11:55310",
-                    "218.16.123.27:55310"
-                ]
-                xtdc.set_allow_optmize_address(server_list)
-
-                # 开启使用期货真实夜盘时间
-                xtdc.set_future_realtime_mode(True)
-
-                # 执行初始化，但不启动默认58609端口监听
-                xtdc.init(False)
-
-                # 设置监听端口58620
-                xtdc.listen(port=58620)
+                self.init_xtdc()
 
             # 尝试查询合约信息，确认连接成功
             xtdata.get_instrument_detail("000001.SZ")
@@ -88,6 +75,42 @@ class XtDatafeed(BaseDatafeed):
 
         self.inited = True
         return True
+
+    def get_lock(self) -> bool:
+        """获取文件锁，确保单例运行"""
+        self.lock = FileLock(self.lock_filepath)
+
+        try:
+            self.lock.acquire(timeout=1)
+            return True
+        except Timeout:
+            return False
+
+    def init_xtdc(self) -> None:
+        """初始化xtdc服务进程"""
+        if not self.get_lock():
+            return
+
+        # 设置token
+        xtdc.set_token(self.password)
+
+        # 将VIP服务器设为连接池
+        server_list: list = [
+            "115.231.218.73:55310",
+            "115.231.218.79:55310",
+            "218.16.123.11:55310",
+            "218.16.123.27:55310"
+        ]
+        xtdc.set_allow_optmize_address(server_list)
+
+        # 开启使用期货真实夜盘时间
+        xtdc.set_future_realtime_mode(True)
+
+        # 执行初始化，但不启动默认58609端口监听
+        xtdc.init(False)
+
+        # 设置监听端口58620
+        xtdc.listen(port=58620)
 
     def query_bar_history(self, req: HistoryRequest, output: Callable = print) -> Optional[list[BarData]]:
         """查询K线数据"""
