@@ -1,13 +1,9 @@
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 from typing import Dict, Tuple, List
 
-from pandas import DataFrame
-from xtquant.xtdata import (
-    subscribe_quote,
-    get_instrument_detail,
-    get_local_data,
-    download_history_data,
-    get_stock_list_in_sector
+from xtquant import (
+    xtdata,
+    xtdatacenter as xtdc
 )
 from xtquant.xtconstant import (
     ORDER_UNREPORTED,
@@ -34,6 +30,7 @@ from xtquant.xtconstant import (
     MARKET_SZ_CONVERT_5_CANCEL,
     FIX_PRICE,
 )
+from filelock import FileLock, Timeout
 
 from vnpy.event import EventEngine
 from vnpy.trader.gateway import BaseGateway
@@ -43,7 +40,6 @@ from vnpy.trader.object import (
     SubscribeRequest,
     ContractData,
     TickData,
-    BarData,
     HistoryRequest,
     OptionType,
     Offset
@@ -56,7 +52,11 @@ from vnpy.trader.constant import (
     Product,
     Interval
 )
-from vnpy.trader.utility import ZoneInfo
+from vnpy.trader.utility import (
+    ZoneInfo,
+    get_file_path,
+    round_to
+)
 
 
 # 委托状态映射
@@ -176,9 +176,7 @@ class XtGateway(BaseGateway):
     default_name: str = "XT"
 
     default_setting: Dict[str, str] = {
-        "路径": "",
-        "资金账号": "",
-        "账户类型": ["股票", "期货"]
+        "token": ""
     }
 
     exchanges: List[str] = list(EXCHANGE_XT2VT.values())
@@ -191,7 +189,9 @@ class XtGateway(BaseGateway):
 
     def connect(self, setting: dict) -> None:
         """连接交易接口"""
-        self.md_api.connect()
+        token: str = setting["token"]
+
+        self.md_api.connect(token)
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
@@ -225,6 +225,9 @@ class XtGateway(BaseGateway):
 class XtMdApi:
     """行情API"""
 
+    lock_filename = "xt_lock"
+    lock_filepath = get_file_path(lock_filename)
+
     def __init__(self, gateway: XtGateway) -> None:
         """构造函数"""
         self.gateway: XtGateway = gateway
@@ -232,7 +235,7 @@ class XtMdApi:
 
         self.inited: bool = False
         self.subscribed: set = set()
-        self.bidding_bar: BarData = None
+        self.token: str = ""
 
     def onMarketData(self, data: dict) -> None:
         """行情推送回调"""
@@ -249,43 +252,114 @@ class XtMdApi:
                     volume=d["volume"],
                     turnover=d["amount"],
                     open_interest=d["openInt"],
-                    last_price=d["lastPrice"],
-                    open_price=d["open"],
-                    high_price=d["high"],
-                    low_price=d["low"],
-                    pre_close=d["lastClose"],
                     gateway_name=self.gateway_name
                 )
 
                 contract = symbol_contract_map[tick.vt_symbol]
                 tick.name = contract.name
 
-                tick.bid_price_1, tick.bid_price_2, tick.bid_price_3, tick.bid_price_4, tick.bid_price_5 = d["bidPrice"]
-                tick.ask_price_1, tick.ask_price_2, tick.ask_price_3, tick.ask_price_4, tick.ask_price_5 = d["askPrice"]
-                tick.bid_volume_1, tick.bid_volume_2, tick.bid_volume_3, tick.bid_volume_4, tick.bid_volume_5 = d["bidVol"]
-                tick.ask_volume_1, tick.ask_volume_2, tick.ask_volume_3, tick.ask_volume_4, tick.ask_volume_5 = d["askVol"]
+                bp_data: list = d["bidPrice"]
+                ap_data: list = d["askPrice"]
+                bv_data: list = d["bidVol"]
+                av_data: list = d["askVol"]
+
+                tick.bid_price_1 = round_to(bp_data[0], contract.pricetick)
+                tick.bid_price_2 = round_to(bp_data[1], contract.pricetick)
+                tick.bid_price_3 = round_to(bp_data[2], contract.pricetick)
+                tick.bid_price_4 = round_to(bp_data[3], contract.pricetick)
+                tick.bid_price_5 = round_to(bp_data[4], contract.pricetick)
+
+                tick.ask_price_1 = round_to(ap_data[0], contract.pricetick)
+                tick.ask_price_2 = round_to(ap_data[1], contract.pricetick)
+                tick.ask_price_3 = round_to(ap_data[2], contract.pricetick)
+                tick.ask_price_4 = round_to(ap_data[3], contract.pricetick)
+                tick.ask_price_5 = round_to(ap_data[4], contract.pricetick)
+
+                tick.bid_volume_1 = bv_data[0]
+                tick.bid_volume_2 = bv_data[1]
+                tick.bid_volume_3 = bv_data[2]
+                tick.bid_volume_4 = bv_data[3]
+                tick.bid_volume_5 = bv_data[4]
+
+                tick.ask_volume_1 = av_data[0]
+                tick.ask_volume_2 = av_data[1]
+                tick.ask_volume_3 = av_data[2]
+                tick.ask_volume_4 = av_data[3]
+                tick.ask_volume_5 = av_data[4]
+
+                tick.last_price = round_to(d["lastPrice"], contract.pricetick)
+                tick.open_price = round_to(d["open"], contract.pricetick)
+                tick.high_price = round_to(d["high"], contract.pricetick)
+                tick.low_price = round_to(d["low"], contract.pricetick)
+                tick.pre_close = round_to(d["lastClose"], contract.pricetick)
 
                 self.gateway.on_tick(tick)
 
-    def connect(self) -> None:
+    def connect(self, token: str) -> None:
         """连接"""
+        self.token = token
+
         if self.inited:
             self.gateway.write_log("行情接口已经初始化，请勿重复操作")
             return
+
+        try:
+            self.init_xtdc()
+
+            # 尝试查询合约信息，确认连接成功
+            xtdata.get_instrument_detail("000001.SZ")
+        except Exception as ex:
+            self.gateway.write_log(f"迅投研数据服务初始化失败，发生异常：{ex}")
+            return False
+
         self.inited = True
+
+        self.gateway.write_log("行情接口连接成功")
 
         self.query_contracts()
 
+    def get_lock(self) -> bool:
+        """获取文件锁，确保单例运行"""
+        self.lock = FileLock(self.lock_filepath)
+
+        try:
+            self.lock.acquire(timeout=1)
+            return True
+        except Timeout:
+            return False
+
+    def init_xtdc(self) -> None:
+        """初始化xtdc服务进程"""
+        if not self.get_lock():
+            return
+
+        # 设置token
+        xtdc.set_token(self.token)
+
+        # 将VIP服务器设为连接池
+        server_list: list = [
+            "115.231.218.73:55310",
+            "115.231.218.79:55310",
+            "218.16.123.11:55310",
+            "218.16.123.27:55310"
+        ]
+        xtdc.set_allow_optmize_address(server_list)
+
+        # 开启使用期货真实夜盘时间
+        xtdc.set_future_realtime_mode(True)
+
+        # 执行初始化，但不启动默认58609端口监听
+        xtdc.init(False)
+
+        # 设置监听端口58620
+        xtdc.listen(port=58620)
+
     def query_contracts(self) -> None:
         """查询合约信息"""
-        if self.gateway.stock_trading:
-            self.query_stock_contracts()
-        else:
-            self.query_future_contracts()
+        self.query_stock_contracts()
+        self.query_future_contracts()
 
         self.gateway.write_log("合约信息查询成功")
-        self.gateway.td_api.query_order()
-        self.gateway.td_api.query_trade()
 
     def query_stock_contracts(self) -> None:
         """查询股票合约信息"""
@@ -293,7 +367,7 @@ class XtMdApi:
         markets: list = ["SH", "SZ", "BJ"]
 
         for i in markets:
-            names: list = get_stock_list_in_sector(i)
+            names: list = xtdata.get_stock_list_in_sector(i)
             xt_symbols += names
 
         for xt_symbol in xt_symbols:
@@ -318,7 +392,7 @@ class XtMdApi:
                 continue
 
             # 生成并推送合约信息
-            data: dict = get_instrument_detail(xt_symbol)
+            data: dict = xtdata.get_instrument_detail(xt_symbol)
 
             contract: ContractData = ContractData(
                 symbol=symbol,
@@ -327,7 +401,7 @@ class XtMdApi:
                 product=product,
                 size=data["VolumeMultiple"],
                 pricetick=data["PriceTick"],
-                history_data=True,
+                history_data=False,
                 gateway_name=self.gateway_name
             )
 
@@ -340,7 +414,7 @@ class XtMdApi:
         markets: list = ["IF", "SF", "INE", "DF", "ZF", "GF"]
 
         for i in markets:
-            names: list = get_stock_list_in_sector(i)
+            names: list = xtdata.get_stock_list_in_sector(i)
             xt_symbols += names
 
         for xt_symbol in xt_symbols:
@@ -359,9 +433,9 @@ class XtMdApi:
 
             # 生成并推送合约信息
             if product == Product.OPTION:
-                data: dict = get_instrument_detail(xt_symbol, True)
+                data: dict = xtdata.get_instrument_detail(xt_symbol, True)
             else:
-                data: dict = get_instrument_detail(xt_symbol)
+                data: dict = xtdata.get_instrument_detail(xt_symbol)
 
             if not data["ExpireDate"]:
                 continue
@@ -373,21 +447,9 @@ class XtMdApi:
                 product=product,
                 size=data["VolumeMultiple"],
                 pricetick=data["PriceTick"],
-                history_data=True,
+                history_data=False,
                 gateway_name=self.gateway_name
             )
-
-            if product == Product.OPTION:
-                if contract.exchange == Exchange.CZCE:
-                    contract.option_portfolio = data["ProductID"][:-1]
-                else:
-                    contract.option_portfolio = data["ProductID"]
-                contract.option_underlying = data["ExtendInfo"]["OptUndlCode"]
-                contract.option_type = OPTIONTYPE_XT2VT[data["ProductName"].replace("-", "")[-1]]
-                contract.option_strike = data["ExtendInfo"]["OptExercisePrice"]
-                contract.option_index = str(data["ExtendInfo"]["OptExercisePrice"])
-                contract.option_listed = datetime.strptime(data["OpenDate"], "%Y%m%d")
-                contract.option_expiry = datetime.strptime(data["ExpireDate"], "%Y%m%d")
 
             symbol_contract_map[contract.vt_symbol] = contract
             self.gateway.on_contract(contract)
@@ -399,99 +461,8 @@ class XtMdApi:
 
         xt_symbol: str = req.symbol + "." + MDEXCHANGE_VT2XT[req.exchange]
         if xt_symbol not in self.subscribed:
-            subscribe_quote(stock_code=xt_symbol, period="tick", callback=self.onMarketData)
+            xtdata.subscribe_quote(stock_code=xt_symbol, period="tick", callback=self.onMarketData)
             self.subscribed.add(xt_symbol)
-
-    def query_history(self, req: HistoryRequest) -> List[BarData]:
-        """查询K线历史"""
-        history: List[BarData] = []
-        symbol: str = req.symbol
-        exchange: Exchange = req.exchange
-        interval: Interval = req.interval
-
-        # 检查是否支持该数据
-        if req.vt_symbol not in symbol_contract_map:
-            self.gateway.write_log(f"获取K线数据失败，找不到{req.vt_symbol}合约")
-            return history
-
-        xt_interval: str = INTERVAL_VT2XT.get(interval, None)
-        if xt_interval is None:
-            self.gateway.write_log(f"获取K线数据失败，接口暂不提供{interval.value}级别历史数据")
-            return history
-
-        # 从服务器下载获取
-        xt_symbol: str = symbol + "." + MDEXCHANGE_VT2XT[exchange]
-        start: str = req.start.strftime("%Y%m%d%H%M%S")
-        end: str = req.end.strftime("%Y%m%d%H%M%S")
-
-        download_history_data(xt_symbol, xt_interval, start, end)
-        data: dict = get_local_data([], [xt_symbol], xt_interval, start, end, -1, "front_ratio", False)      # 默认等比前复权
-
-        df: DataFrame = data[xt_symbol]
-
-        if df.empty:
-            return history
-
-        adjustment: timedelta = INTERVAL_ADJUSTMENT_MAP[interval]
-
-        # 遍历解析
-        for tp in df.itertuples():
-
-            # 为了xtdata时间戳（K线结束时点）转换为VeighNa时间戳（K线开始时点）
-            dt: datetime = generate_datetime(tp.time)
-            dt = dt - adjustment
-
-            # 日线过滤尚未走完的当日数据
-            if interval == Interval.DAILY:
-                incomplete_bar: bool = (
-                    dt.date() == datetime.now().date()
-                    and datetime.now().time() < time(hour=15)
-                )
-                if incomplete_bar:
-                    continue
-            # 分钟线过滤开盘脏前数据
-            else:
-                if exchange in (Exchange.SSE, Exchange.SZSE, Exchange.BSE, Exchange.CFFEX) and dt.time() < time(hour=9, minute=30):
-                    self.bidding_bar = BarData(
-                        symbol=req.symbol,
-                        exchange=req.exchange,
-                        datetime=dt,
-                        open_price=float(tp.open),
-                        volume=float(tp.volume),
-                        turnover=float(tp.amount),
-                        gateway_name="XT"
-                    )
-                    continue
-
-            bar: BarData = BarData(
-                symbol=symbol,
-                exchange=exchange,
-                datetime=dt,
-                interval=interval,
-                volume=float(tp.volume),
-                turnover=float(tp.amount),
-                open_interest=float(tp.openInterest),
-                open_price=float(tp.open),
-                high_price=float(tp.high),
-                low_price=float(tp.low),
-                close_price=float(tp.close),
-                gateway_name=self.gateway_name
-            )
-
-            if self.bidding_bar:
-                bar.volume += self.bidding_bar.volume
-                bar.turnover += self.bidding_bar.turnover
-                bar.open_price = self.bidding_bar.open_price
-                self.bidding_bar = None
-
-            history.append(bar)
-
-        # 输出日志信息
-        if history:
-            msg: str = f"获取历史数据成功，{req.vt_symbol} - {interval.value}，{history[0].datetime} - {history[-1].datetime}"
-            self.gateway.write_log(msg)
-
-        return history
 
     def close(self) -> None:
         """关闭连接"""
