@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Callable, Optional
+from typing import Callable, Optional
 
 from xtquant import (
     xtdata,
@@ -29,7 +29,7 @@ from vnpy.trader.utility import (
 )
 
 # 交易所映射
-EXCHANGE_VT2XT: Dict[str, Exchange] = {
+EXCHANGE_VT2XT: dict[str, Exchange] = {
     Exchange.SSE: "SH",
     Exchange.SZSE: "SZ",
     Exchange.BSE: "BJ",
@@ -41,7 +41,7 @@ EXCHANGE_VT2XT: Dict[str, Exchange] = {
     Exchange.GFEX: "GF",
 }
 
-EXCHANGE_XT2VT: Dict[str, Exchange] = {v: k for k, v in EXCHANGE_VT2XT.items()}
+EXCHANGE_XT2VT: dict[str, Exchange] = {v: k for k, v in EXCHANGE_VT2XT.items()}
 EXCHANGE_XT2VT["SHO"] = Exchange.SSE
 EXCHANGE_XT2VT["SZO"] = Exchange.SZSE
 
@@ -51,7 +51,7 @@ CHINA_TZ = ZoneInfo("Asia/Shanghai")       # 中国时区
 
 
 # 合约数据全局缓存字典
-symbol_contract_map: Dict[str, ContractData] = {}
+symbol_contract_map: dict[str, ContractData] = {}
 
 
 class XtGateway(BaseGateway):
@@ -61,14 +61,14 @@ class XtGateway(BaseGateway):
 
     default_name: str = "XT"
 
-    default_setting: Dict[str, str] = {
+    default_setting: dict[str, str] = {
         "token": "",
         "股票市场": ["是", "否"],
         "期货市场": ["是", "否"],
         "期权市场": ["是", "否"]
     }
 
-    exchanges: List[str] = list(EXCHANGE_VT2XT.keys())
+    exchanges: list[str] = list(EXCHANGE_VT2XT.keys())
 
     def __init__(self, event_engine: EventEngine, gateway_name: str) -> None:
         """构造函数"""
@@ -274,7 +274,7 @@ class XtMdApi:
 
     def query_stock_contracts(self) -> None:
         """查询股票合约信息"""
-        xt_symbols: List[str] = []
+        xt_symbols: list[str] = []
         markets: list = [
             "沪深A股",
             "沪深转债",
@@ -331,7 +331,7 @@ class XtMdApi:
 
     def query_future_contracts(self) -> None:
         """查询期货合约信息"""
-        xt_symbols: List[str] = []
+        xt_symbols: list[str] = []
         markets: list = [
             "中金所期货",
             "上期所期货",
@@ -384,7 +384,7 @@ class XtMdApi:
 
     def query_option_contracts(self) -> None:
         """查询期权合约信息"""
-        xt_symbols: List[str] = []
+        xt_symbols: list[str] = []
 
         markets: list = [
             "上证期权",
