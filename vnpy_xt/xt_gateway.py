@@ -56,7 +56,7 @@ symbol_contract_map: dict[str, ContractData] = {}
 
 class XtGateway(BaseGateway):
     """
-    VeighNa用于对接迅投QMT Mini的交易接口。
+    VeighNa用于对接迅投研的实时行情接口。
     """
 
     default_name: str = "XT"

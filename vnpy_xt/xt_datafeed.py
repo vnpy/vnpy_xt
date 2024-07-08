@@ -268,7 +268,7 @@ def get_history_df(req: HistoryRequest, output: Callable = print) -> DataFrame:
 
     xt_interval: str = INTERVAL_VT2XT.get(interval, None)
     if not xt_interval:
-        output(f"讯投研查询历史数据失败：不支持的时间周期{interval.value}")
+        output(f"迅投研查询历史数据失败：不支持的时间周期{interval.value}")
         return DataFrame()
 
     # 为了查询夜盘数据
