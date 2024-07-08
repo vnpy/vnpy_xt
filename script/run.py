@@ -1,16 +1,16 @@
 from vnpy.event import EventEngine
 from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import MainWindow, create_qapp
-from vnpy.trader.setting import SETTINGS
 
-from vnpy_ctp import CtpGateway
+from vnpy_xt import XtGateway
 from vnpy_datamanager import DataManagerApp
 
 
 # 配置datafeed相关信息，也可以通过vt_setting.json全局文件配置
-SETTINGS["datafeed.name"] = "xt"
-SETTINGS["datafeed.username"] = "token"
-SETTINGS["datafeed.password"] = "xxx"
+# from vnpy.trader.setting import SETTINGS
+# SETTINGS["datafeed.name"] = "xt"
+# SETTINGS["datafeed.username"] = "token"
+# SETTINGS["datafeed.password"] = "xxx"
 
 
 def main():
@@ -19,7 +19,7 @@ def main():
 
     event_engine = EventEngine()
     main_engine = MainEngine(event_engine)
-    main_engine.add_gateway(CtpGateway)
+    main_engine.add_gateway(XtGateway)
     main_engine.add_app(DataManagerApp)
 
     main_window = MainWindow(main_engine, event_engine)
