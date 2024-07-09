@@ -420,7 +420,7 @@ class XtMdApi:
             return
 
         xt_exchange: str = EXCHANGE_VT2XT[req.exchange]
-        if xt_exchange in {"SH", "SZ"} and len(req.symbol) >= 6:
+        if xt_exchange in {"SH", "SZ"} and len(req.symbol) > 6:
             xt_exchange += "O"
 
         xt_symbol: str = req.symbol + "." + xt_exchange
