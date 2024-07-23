@@ -90,14 +90,11 @@ DIRECTION_XT2VT: dict[str, Direction] = {v: k for k, v in DIRECTION_VT2XT.items(
 
 # 委托类型映射
 ORDERTYPE_VT2XT: dict[tuple, int] = {
-    (Exchange.SSE, OrderType.MARKET): xtconstant.MARKET_SH_CONVERT_5_CANCEL,
-    (Exchange.SZSE, OrderType.MARKET): xtconstant.MARKET_SZ_CONVERT_5_CANCEL,
     (Exchange.SSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
     (Exchange.SZSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
 }
 ORDERTYPE_XT2VT: dict[int, OrderType] = {
     50: OrderType.LIMIT,
-    88: OrderType.MARKET,
 }
 
 # 其他常量
@@ -723,7 +720,7 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
             return ""
 
-        if req.type not in {OrderType.LIMIT, OrderType.MARKET}:
+        if req.type not in {OrderType.LIMIT}:
             self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
             return ""
 
