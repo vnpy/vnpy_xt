@@ -720,6 +720,10 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
             return ""
 
+        if contract.exchange not in {Exchange.SSE, Exchange.SZSE} or len(contract.symbol) > 6:
+            self.gateway.write_log(f"不支持的合约{req.vt_symbol}")
+            return
+
         if req.type not in {OrderType.LIMIT}:
             self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
             return ""
