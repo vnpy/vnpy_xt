@@ -598,7 +598,7 @@ class XtTdApi(XtQuantTraderCallback):
             volume=xt_order.order_volume,
             traded=xt_order.traded_volume,
             status=STATUS_XT2VT.get(xt_order.order_status, Status.SUBMITTING),
-            datetime=generate_datetime(xt_order.order_time),
+            datetime=generate_datetime(xt_order.order_time, False),
             gateway_name=self.gateway_name
         )
 
@@ -647,7 +647,7 @@ class XtTdApi(XtQuantTraderCallback):
             direction=DIRECTION_XT2VT[xt_trade.order_type],
             price=xt_trade.traded_price,
             volume=xt_trade.traded_volume,
-            datetime=generate_datetime(xt_trade.traded_time),
+            datetime=generate_datetime(xt_trade.traded_time, False),
             gateway_name=self.gateway_name
         )
 
