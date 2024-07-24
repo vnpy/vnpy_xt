@@ -82,11 +82,20 @@ STATUS_XT2VT: dict[str, Status] = {
 }
 
 # 多空方向映射
-DIRECTION_VT2XT: dict[Direction, str] = {
-    Direction.LONG: xtconstant.STOCK_BUY,
-    Direction.SHORT: xtconstant.STOCK_SELL,
+DIRECTION_VT2XT: dict[tuple, str] = {
+    (Direction.LONG, Offset.NONE): xtconstant.STOCK_BUY,
+    (Direction.SHORT, Offset.NONE): xtconstant.STOCK_SELL,
+    (Direction.LONG, Offset.OPEN): xtconstant.STOCK_OPTION_BUY_OPEN,
+    (Direction.LONG, Offset.CLOSE): xtconstant.STOCK_OPTION_BUY_CLOSE,
+    (Direction.SHORT, Offset.OPEN): xtconstant.STOCK_OPTION_SELL_OPEN,
+    (Direction.SHORT, Offset.CLOSE): xtconstant.STOCK_OPTION_SELL_CLOSE,
 }
-DIRECTION_XT2VT: dict[str, Direction] = {v: k for k, v in DIRECTION_VT2XT.items()}
+DIRECTION_XT2VT: dict[str, tuple] = {v: k for k, v in DIRECTION_VT2XT.items()}
+
+POSDIRECTION_XT2VT: dict[int, Direction] = {
+    xtconstant.DIRECTION_FLAG_BUY: Direction.LONG,
+    xtconstant.DIRECTION_FLAG_SELL: Direction.SHORT
+}
 
 # 委托类型映射
 ORDERTYPE_VT2XT: dict[tuple, int] = {
@@ -117,7 +126,7 @@ class XtGateway(BaseGateway):
         "股票市场": ["是", "否"],
         "期货市场": ["是", "否"],
         "期权市场": ["是", "否"],
-        "账户类型": ["股票"],
+        "账号类型": ["股票", "股票期权"],
         "路径": "",
         "资金账号": ""
     }
@@ -143,9 +152,13 @@ class XtGateway(BaseGateway):
 
         path: str = setting["路径"]
         accountid: str = setting["资金账号"]
+        if setting["账号类型"] == "股票":
+            account_type: str = "STOCK"
+        else:
+            account_type: str = "STOCK_OPTION"
 
         self.md_api.connect(token, stock_active, futures_active, option_active)
-        self.td_api.init(path, accountid)
+        self.td_api.init(path, accountid, account_type)
 
         self.init_query()
 
@@ -537,6 +550,8 @@ class XtTdApi(XtQuantTraderCallback):
         self.inited: bool = False
         self.connected: bool = False
 
+        self.account_type: str = ""
+
         self.order_count: int = 0
 
         self.active_localid_sysid_map: dict[str, str] = {}
@@ -544,13 +559,14 @@ class XtTdApi(XtQuantTraderCallback):
         self.xt_client: XtQuantTrader = None
         self.xt_account: StockAccount = None
 
-    def init(self, path: str, accountid: str) -> None:
+    def init(self, path: str, accountid: str, account_type: str) -> None:
         """初始化"""
         if self.inited:
             self.gateway.write_log("已经初始化，请勿重复操作")
             return
 
         self.inited = True
+        self.account_type = account_type
         self.connect(path, accountid)
 
     def on_connected(self):
@@ -583,13 +599,18 @@ class XtTdApi(XtQuantTraderCallback):
         if not type:
             return
 
+        direction, offset = DIRECTION_XT2VT.get(xt_order.order_type, (None, None))
+        if direction is None:
+            return
+
         symbol, xt_exchange = xt_order.stock_code.split(".")
 
         order: OrderData = OrderData(
             symbol=symbol,
             exchange=EXCHANGE_XT2VT[xt_exchange],
             orderid=xt_order.order_remark,
-            direction=DIRECTION_XT2VT[xt_order.order_type],
+            direction=direction,
+            offset=offset,
             type=type,                  # 目前测出来与文档不同，限价返回50，市价返回88
             price=xt_order.price,
             volume=xt_order.order_volume,
@@ -636,12 +657,17 @@ class XtTdApi(XtQuantTraderCallback):
 
         symbol, xt_exchange = xt_trade.stock_code.split(".")
 
+        direction, offset = DIRECTION_XT2VT.get(xt_trade.order_type, (None, None))
+        if direction is None:
+            return
+
         trade: TradeData = TradeData(
             symbol=symbol,
             exchange=EXCHANGE_XT2VT[xt_exchange],
             orderid=xt_trade.order_remark,
             tradeid=xt_trade.traded_id,
-            direction=DIRECTION_XT2VT[xt_trade.order_type],
+            direction=direction,
+            offset=offset,
             price=xt_trade.traded_price,
             volume=xt_trade.traded_volume,
             datetime=generate_datetime(xt_trade.traded_time, False),
@@ -667,12 +693,20 @@ class XtTdApi(XtQuantTraderCallback):
             if not xt_position.market_value:
                 continue
 
+            if self.account_type == "STOCK":
+                direction: Direction = Direction.NET
+            else:
+                direction: Direction = POSDIRECTION_XT2VT.get(xt_position.direction, "")
+
+            if not direction:
+                continue
+
             symbol, xt_exchange = xt_position.stock_code.split(".")
 
             position: PositionData = PositionData(
                 symbol=symbol,
                 exchange=EXCHANGE_XT2VT[xt_exchange],
-                direction=Direction.NET,
+                direction=direction,
                 volume=xt_position.volume,
                 yd_volume=xt_position.can_use_volume,
                 frozen=xt_position.volume - xt_position.can_use_volume,
@@ -720,7 +754,7 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
             return ""
 
-        if contract.exchange not in {Exchange.SSE, Exchange.SZSE} or len(contract.symbol) > 6:
+        if contract.exchange not in {Exchange.SSE, Exchange.SZSE}:
             self.gateway.write_log(f"不支持的合约{req.vt_symbol}")
             return
 
@@ -728,13 +762,25 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
             return ""
 
+        if req.offset.value:
+            if contract.product != Product.OPTION:
+                self.gateway.write_log("委托失败，现货交易不需要选择开平方向")
+                return ""
+        else:
+            if contract.product == Product.OPTION:
+                self.gateway.write_log("委托失败，期权交易需要选择开平方向")
+                return ""
+
         stock_code: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+        if self.account_type == "STOCK_OPTION":
+            stock_code += "O"
+
         orderid: str = self.new_orderid()
 
         self.xt_client.order_stock_async(
             account=self.xt_account,
             stock_code=stock_code,
-            order_type=DIRECTION_VT2XT[req.direction],
+            order_type=DIRECTION_VT2XT[(req.direction, req.offset)],
             order_volume=int(req.volume),
             price_type=ORDERTYPE_VT2XT[(req.exchange, req.type)],
             price=req.price,
@@ -780,7 +826,7 @@ class XtTdApi(XtQuantTraderCallback):
         # QMT普通版本path填写f"{放置安装文件夹的路径}\\userdata"
         self.xt_client = XtQuantTrader(path, session)
 
-        self.xt_account = StockAccount(accountid, account_type="STOCK")
+        self.xt_account = StockAccount(accountid, account_type=self.account_type)
 
         # 注册回调接口
         self.xt_client.register_callback(self)
