@@ -101,6 +101,7 @@ POSDIRECTION_XT2VT: dict[int, Direction] = {
 ORDERTYPE_VT2XT: dict[tuple, int] = {
     (Exchange.SSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
     (Exchange.SZSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
+    (Exchange.BSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
 }
 ORDERTYPE_XT2VT: dict[int, OrderType] = {
     50: OrderType.LIMIT,
@@ -754,7 +755,7 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
             return ""
 
-        if contract.exchange not in {Exchange.SSE, Exchange.SZSE}:
+        if contract.exchange not in {Exchange.SSE, Exchange.SZSE, Exchange.BSE}:
             self.gateway.write_log(f"不支持的合约{req.vt_symbol}")
             return
 
