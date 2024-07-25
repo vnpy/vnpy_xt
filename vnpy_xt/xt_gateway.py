@@ -551,6 +551,8 @@ class XtTdApi(XtQuantTraderCallback):
         self.inited: bool = False
         self.connected: bool = False
 
+        self.account_id: str = ""
+        self.path: str = ""
         self.account_type: str = ""
 
         self.order_count: int = 0
@@ -567,8 +569,10 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         self.inited = True
+        self.account_id = accountid
+        self.path = path
         self.account_type = account_type
-        self.connect(path, accountid)
+        self.connect()
 
     def on_connected(self):
         """
@@ -581,8 +585,9 @@ class XtTdApi(XtQuantTraderCallback):
         self.gateway.write_log("交易接口连接断开，请检查与客户端的连接状态")
         self.connected = False
 
-        # 尝试重连
-        connect_result = self.xt_client.connect()
+        # 尝试重连，重连需要更换session_id
+        session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
+        connect_result = self.connect(session)
 
         if connect_result:
             self.gateway.write_log("交易接口重连失败")
@@ -819,15 +824,16 @@ class XtTdApi(XtQuantTraderCallback):
         """查询成交信息"""
         self.xt_client.query_stock_trades_async(self.xt_account, self.on_query_trades_async)
 
-    def connect(self, path: str, accountid: str) -> str:
+    def connect(self, session: int = 0) -> int:
         """发起连接"""
         # 创建客户端和账号实例
-        session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
+        if not session:
+            session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
 
         # QMT普通版本path填写f"{放置安装文件夹的路径}\\userdata"
-        self.xt_client = XtQuantTrader(path, session)
+        self.xt_client = XtQuantTrader(self.path, session)
 
-        self.xt_account = StockAccount(accountid, account_type=self.account_type)
+        self.xt_account = StockAccount(self.account_id, account_type=self.account_type)
 
         # 注册回调接口
         self.xt_client.register_callback(self)
@@ -839,7 +845,7 @@ class XtTdApi(XtQuantTraderCallback):
         connect_result: int = self.xt_client.connect()
         if connect_result:
             self.gateway.write_log("交易接口连接失败")
-            return
+            return connect_result
 
         self.connected = True
         self.gateway.write_log("交易接口连接成功")
@@ -848,7 +854,7 @@ class XtTdApi(XtQuantTraderCallback):
         subscribe_result: int = self.xt_client.subscribe(self.xt_account)
         if subscribe_result:
             self.gateway.write_log("交易接口订阅失败")
-            return
+            return -1
 
         self.gateway.write_log("交易接口订阅成功")
 
@@ -857,6 +863,8 @@ class XtTdApi(XtQuantTraderCallback):
         self.query_position()
         self.query_order()
         self.query_trade()
+
+        return connect_result
 
     def close(self) -> None:
         """关闭连接"""
