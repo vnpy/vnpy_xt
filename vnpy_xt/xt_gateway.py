@@ -627,7 +627,7 @@ class XtTdApi(XtQuantTraderCallback):
         )
 
         if order.is_active():
-            self.active_localid_sysid_map[xt_order.order_remark] = xt_order.order_id
+            self.active_localid_sysid_map[xt_order.order_remark] = xt_order.order_sysid
         else:
             self.active_localid_sysid_map.pop(xt_order.order_remark, None)
 
@@ -803,7 +803,12 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log("撤单失败，找不到委托号")
             return
 
-        self.xt_client.cancel_order_stock_async(self.xt_account, sysid)
+        if req.exchange == Exchange.SSE:
+            market: int = 0
+        else:
+            market: int = 1
+
+        self.xt_client.cancel_order_stock_sysid_async(self.xt_account, market, sysid)
 
     def query_position(self) -> None:
         """查询持仓"""
