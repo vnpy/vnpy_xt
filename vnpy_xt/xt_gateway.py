@@ -696,9 +696,6 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         for xt_position in xt_positions:
-            if not xt_position.market_value:
-                continue
-
             if self.account_type == "STOCK":
                 direction: Direction = Direction.NET
             else:
