@@ -5,9 +5,22 @@ from xtquant import (
     xtdata,
     xtdatacenter as xtdc
 )
+from xtquant import xtconstant
+from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
+from xtquant.xttype import (
+    StockAccount,
+    XtAsset,
+    XtOrder,
+    XtPosition,
+    XtTrade,
+    XtOrderResponse,
+    XtCancelOrderResponse,
+    XtOrderError,
+    XtCancelError
+)
 from filelock import FileLock, Timeout
 
-from vnpy.event import EventEngine
+from vnpy.event import EventEngine, EVENT_TIMER
 from vnpy.trader.gateway import BaseGateway
 from vnpy.trader.object import (
     OrderRequest,
@@ -17,6 +30,14 @@ from vnpy.trader.object import (
     TickData,
     HistoryRequest,
     OptionType,
+    OrderData,
+    Status,
+    Direction,
+    OrderType,
+    AccountData,
+    PositionData,
+    TradeData,
+    Offset
 )
 from vnpy.trader.constant import (
     Exchange,
@@ -29,7 +50,7 @@ from vnpy.trader.utility import (
 )
 
 # 交易所映射
-EXCHANGE_VT2XT: dict[str, Exchange] = {
+EXCHANGE_VT2XT: dict[Exchange, str] = {
     Exchange.SSE: "SH",
     Exchange.SZSE: "SZ",
     Exchange.BSE: "BJ",
@@ -45,6 +66,46 @@ EXCHANGE_XT2VT: dict[str, Exchange] = {v: k for k, v in EXCHANGE_VT2XT.items()}
 EXCHANGE_XT2VT["SHO"] = Exchange.SSE
 EXCHANGE_XT2VT["SZO"] = Exchange.SZSE
 
+
+# 委托状态映射
+STATUS_XT2VT: dict[str, Status] = {
+    xtconstant.ORDER_UNREPORTED: Status.SUBMITTING,
+    xtconstant.ORDER_WAIT_REPORTING: Status.SUBMITTING,
+    xtconstant.ORDER_REPORTED: Status.NOTTRADED,
+    xtconstant.ORDER_REPORTED_CANCEL: Status.CANCELLED,
+    xtconstant.ORDER_PARTSUCC_CANCEL: Status.CANCELLED,
+    xtconstant.ORDER_PART_CANCEL: Status.CANCELLED,
+    xtconstant.ORDER_CANCELED: Status.CANCELLED,
+    xtconstant.ORDER_PART_SUCC: Status.PARTTRADED,
+    xtconstant.ORDER_SUCCEEDED: Status.ALLTRADED,
+    xtconstant.ORDER_JUNK: Status.REJECTED
+}
+
+# 多空方向映射
+DIRECTION_VT2XT: dict[tuple, str] = {
+    (Direction.LONG, Offset.NONE): xtconstant.STOCK_BUY,
+    (Direction.SHORT, Offset.NONE): xtconstant.STOCK_SELL,
+    (Direction.LONG, Offset.OPEN): xtconstant.STOCK_OPTION_BUY_OPEN,
+    (Direction.LONG, Offset.CLOSE): xtconstant.STOCK_OPTION_BUY_CLOSE,
+    (Direction.SHORT, Offset.OPEN): xtconstant.STOCK_OPTION_SELL_OPEN,
+    (Direction.SHORT, Offset.CLOSE): xtconstant.STOCK_OPTION_SELL_CLOSE,
+}
+DIRECTION_XT2VT: dict[str, tuple] = {v: k for k, v in DIRECTION_VT2XT.items()}
+
+POSDIRECTION_XT2VT: dict[int, Direction] = {
+    xtconstant.DIRECTION_FLAG_BUY: Direction.LONG,
+    xtconstant.DIRECTION_FLAG_SELL: Direction.SHORT
+}
+
+# 委托类型映射
+ORDERTYPE_VT2XT: dict[tuple, int] = {
+    (Exchange.SSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
+    (Exchange.SZSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
+    (Exchange.BSE, OrderType.LIMIT): xtconstant.FIX_PRICE,
+}
+ORDERTYPE_XT2VT: dict[int, OrderType] = {
+    50: OrderType.LIMIT,
+}
 
 # 其他常量
 CHINA_TZ = ZoneInfo("Asia/Shanghai")       # 中国时区
@@ -65,7 +126,10 @@ class XtGateway(BaseGateway):
         "token": "",
         "股票市场": ["是", "否"],
         "期货市场": ["是", "否"],
-        "期权市场": ["是", "否"]
+        "期权市场": ["是", "否"],
+        "账号类型": ["股票", "股票期权"],
+        "路径": "",
+        "资金账号": ""
     }
 
     exchanges: list[str] = list(EXCHANGE_VT2XT.keys())
@@ -75,15 +139,29 @@ class XtGateway(BaseGateway):
         super().__init__(event_engine, gateway_name)
 
         self.md_api: "XtMdApi" = XtMdApi(self)
+        self.td_api: "XtTdApi" = XtTdApi(self)
+
+        self.orders: dict[str, OrderData] = {}
 
     def connect(self, setting: dict) -> None:
         """连接交易接口"""
         token: str = setting["token"]
+
         stock_active: bool = setting["股票市场"] == "是"
         futures_active: bool = setting["期货市场"] == "是"
         option_active: bool = setting["期权市场"] == "是"
 
+        path: str = setting["路径"]
+        accountid: str = setting["资金账号"]
+        if setting["账号类型"] == "股票":
+            account_type: str = "STOCK"
+        else:
+            account_type: str = "STOCK_OPTION"
+
         self.md_api.connect(token, stock_active, futures_active, option_active)
+        self.td_api.init(path, accountid, account_type)
+
+        self.init_query()
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
@@ -91,27 +169,53 @@ class XtGateway(BaseGateway):
 
     def send_order(self, req: OrderRequest) -> str:
         """委托下单"""
-        pass
+        return self.td_api.send_order(req)
 
     def cancel_order(self, req: CancelRequest) -> None:
         """委托撤单"""
-        pass
+        self.td_api.cancel_order(req)
 
     def query_account(self) -> None:
         """查询资金"""
-        pass
+        self.td_api.query_account()
 
     def query_position(self) -> None:
         """查询持仓"""
-        pass
+        self.td_api.query_position()
 
     def query_history(self, req: HistoryRequest) -> None:
         """查询历史数据"""
         return None
 
+    def on_order(self, order: OrderData) -> None:
+        """推送委托数据"""
+        self.orders[order.orderid] = order
+        super().on_order(order)
+
+    def get_order(self, orderid: str) -> OrderData:
+        """查询委托数据"""
+        return self.orders.get(orderid, None)
+
     def close(self) -> None:
         """关闭接口"""
-        pass
+        self.td_api.close()
+
+    def process_timer_event(self, event) -> None:
+        """定时事件处理"""
+        self.count += 1
+        if self.count < 2:
+            return
+        self.count = 0
+
+        func = self.query_functions.pop(0)
+        func()
+        self.query_functions.append(func)
+
+    def init_query(self) -> None:
+        """初始化查询任务"""
+        self.count: int = 0
+        self.query_functions: list = [self.query_account, self.query_position]
+        self.event_engine.register(EVENT_TIMER, self.process_timer_event)
 
 
 class XtMdApi:
@@ -432,6 +536,342 @@ class XtMdApi:
     def close(self) -> None:
         """关闭连接"""
         pass
+
+
+class XtTdApi(XtQuantTraderCallback):
+    """交易API"""
+
+    def __init__(self, gateway: XtGateway):
+        """构造函数"""
+        super().__init__()
+
+        self.gateway: XtGateway = gateway
+        self.gateway_name: str = gateway.gateway_name
+
+        self.inited: bool = False
+        self.connected: bool = False
+
+        self.account_id: str = ""
+        self.path: str = ""
+        self.account_type: str = ""
+
+        self.order_count: int = 0
+
+        self.active_localid_sysid_map: dict[str, str] = {}
+
+        self.xt_client: XtQuantTrader = None
+        self.xt_account: StockAccount = None
+
+    def init(self, path: str, accountid: str, account_type: str) -> None:
+        """初始化"""
+        if self.inited:
+            self.gateway.write_log("已经初始化，请勿重复操作")
+            return
+
+        self.inited = True
+        self.account_id = accountid
+        self.path = path
+        self.account_type = account_type
+        self.connect()
+
+    def on_connected(self):
+        """
+        连接成功推送
+        """
+        pass
+
+    def on_disconnected(self):
+        """连接断开"""
+        self.gateway.write_log("交易接口连接断开，请检查与客户端的连接状态")
+        self.connected = False
+
+        # 尝试重连，重连需要更换session_id
+        session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
+        connect_result = self.connect(session)
+
+        if connect_result:
+            self.gateway.write_log("交易接口重连失败")
+        else:
+            self.gateway.write_log("交易接口重连成功")
+
+    def on_stock_order(self, xt_order: XtOrder) -> None:
+        """委托回报推送"""
+        # 过滤非VeighNa Trader发出的委托
+        if not xt_order.order_remark:
+            return
+
+        # 过滤不支持的委托类型
+        type: OrderType = ORDERTYPE_XT2VT.get(xt_order.price_type, None)
+        if not type:
+            return
+
+        direction, offset = DIRECTION_XT2VT.get(xt_order.order_type, (None, None))
+        if direction is None:
+            return
+
+        symbol, xt_exchange = xt_order.stock_code.split(".")
+
+        order: OrderData = OrderData(
+            symbol=symbol,
+            exchange=EXCHANGE_XT2VT[xt_exchange],
+            orderid=xt_order.order_remark,
+            direction=direction,
+            offset=offset,
+            type=type,                  # 目前测出来与文档不同，限价返回50，市价返回88
+            price=xt_order.price,
+            volume=xt_order.order_volume,
+            traded=xt_order.traded_volume,
+            status=STATUS_XT2VT.get(xt_order.order_status, Status.SUBMITTING),
+            datetime=generate_datetime(xt_order.order_time, False),
+            gateway_name=self.gateway_name
+        )
+
+        if order.is_active():
+            self.active_localid_sysid_map[xt_order.order_remark] = xt_order.order_sysid
+        else:
+            self.active_localid_sysid_map.pop(xt_order.order_remark, None)
+
+        self.gateway.on_order(order)
+
+    def on_query_order_async(self, xt_orders: list[XtOrder]) -> None:
+        """委托信息异步查询回报"""
+        if not xt_orders:
+            return
+
+        for data in xt_orders:
+            self.on_stock_order(data)
+
+    def on_query_asset_async(self, xt_asset: XtAsset) -> None:
+        """资金信息异步查询回报"""
+        if not xt_asset:
+            return
+
+        account: AccountData = AccountData(
+            accountid=xt_asset.account_id,
+            balance=xt_asset.total_asset,
+            frozen=xt_asset.frozen_cash,
+            gateway_name=self.gateway_name
+        )
+        account.available = xt_asset.cash
+
+        self.gateway.on_account(account)
+
+    def on_stock_trade(self, xt_trade: XtTrade) -> None:
+        """成交变动推送"""
+        if not xt_trade.order_remark:
+            return
+
+        symbol, xt_exchange = xt_trade.stock_code.split(".")
+
+        direction, offset = DIRECTION_XT2VT.get(xt_trade.order_type, (None, None))
+        if direction is None:
+            return
+
+        trade: TradeData = TradeData(
+            symbol=symbol,
+            exchange=EXCHANGE_XT2VT[xt_exchange],
+            orderid=xt_trade.order_remark,
+            tradeid=xt_trade.traded_id,
+            direction=direction,
+            offset=offset,
+            price=xt_trade.traded_price,
+            volume=xt_trade.traded_volume,
+            datetime=generate_datetime(xt_trade.traded_time, False),
+            gateway_name=self.gateway_name
+        )
+
+        self.gateway.on_trade(trade)
+
+    def on_query_trades_async(self, xt_trades: list[XtTrade]) -> None:
+        """成交信息异步查询回报"""
+        if not xt_trades:
+            return
+
+        for xt_trade in xt_trades:
+            self.on_stock_trade(xt_trade)
+
+    def on_query_positions_async(self, xt_positions: list[XtPosition]) -> None:
+        """持仓信息异步查询回报"""
+        if not xt_positions:
+            return
+
+        for xt_position in xt_positions:
+            if self.account_type == "STOCK":
+                direction: Direction = Direction.NET
+            else:
+                direction: Direction = POSDIRECTION_XT2VT.get(xt_position.direction, "")
+
+            if not direction:
+                continue
+
+            symbol, xt_exchange = xt_position.stock_code.split(".")
+
+            position: PositionData = PositionData(
+                symbol=symbol,
+                exchange=EXCHANGE_XT2VT[xt_exchange],
+                direction=direction,
+                volume=xt_position.volume,
+                yd_volume=xt_position.can_use_volume,
+                frozen=xt_position.volume - xt_position.can_use_volume,
+                price=xt_position.open_price,
+                gateway_name=self.gateway_name
+            )
+
+            self.gateway.on_position(position)
+
+    def on_order_error(self, xt_error: XtOrderError) -> None:
+        """委托失败推送"""
+        order: OrderData = self.gateway.get_order(xt_error.order_remark)
+        if order:
+            order.status = Status.REJECTED
+            self.gateway.on_order(order)
+
+        self.gateway.write_log(f"交易委托失败, 错误代码{xt_error.error_id}, 错误信息{xt_error.error_msg}")
+
+    def on_cancel_error(self, xt_error: XtCancelError) -> None:
+        """撤单失败推送"""
+        self.gateway.write_log(f"交易撤单失败, 错误代码{xt_error.error_id}, 错误信息{xt_error.error_msg}")
+
+    def on_order_stock_async_response(self, response: XtOrderResponse) -> None:
+        """异步下单回报推送"""
+        pass
+
+    def on_cancel_order_stock_async_response(self, response: XtCancelOrderResponse) -> None:
+        """异步撤单回报推送"""
+        pass
+
+    def new_orderid(self) -> str:
+        """生成本地委托号"""
+        prefix: str = datetime.now().strftime("1%m%d%H%M%S")
+
+        self.order_count += 1
+        suffix: str = str(self.order_count).rjust(6, "0")
+
+        orderid: str = prefix + suffix
+        return orderid
+
+    def send_order(self, req: OrderRequest) -> str:
+        """委托下单"""
+        contract: ContractData = symbol_contract_map.get(req.vt_symbol, None)
+        if not contract:
+            self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
+            return ""
+
+        if contract.exchange not in {Exchange.SSE, Exchange.SZSE, Exchange.BSE}:
+            self.gateway.write_log(f"不支持的合约{req.vt_symbol}")
+            return
+
+        if req.type not in {OrderType.LIMIT}:
+            self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
+            return ""
+
+        if req.offset.value:
+            if contract.product != Product.OPTION:
+                self.gateway.write_log("委托失败，现货交易不需要选择开平方向")
+                return ""
+        else:
+            if contract.product == Product.OPTION:
+                self.gateway.write_log("委托失败，期权交易需要选择开平方向")
+                return ""
+
+        stock_code: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
+        if self.account_type == "STOCK_OPTION":
+            stock_code += "O"
+
+        orderid: str = self.new_orderid()
+
+        self.xt_client.order_stock_async(
+            account=self.xt_account,
+            stock_code=stock_code,
+            order_type=DIRECTION_VT2XT[(req.direction, req.offset)],
+            order_volume=int(req.volume),
+            price_type=ORDERTYPE_VT2XT[(req.exchange, req.type)],
+            price=req.price,
+            strategy_name=req.reference,
+            order_remark=orderid
+        )
+
+        order: OrderData = req.create_order_data(orderid, self.gateway_name)
+        self.gateway.on_order(order)
+
+        return order.vt_orderid
+
+    def cancel_order(self, req: CancelRequest) -> None:
+        """委托撤单"""
+        sysid: str = self.active_localid_sysid_map.get(req.orderid, None)
+        if not sysid:
+            self.gateway.write_log("撤单失败，找不到委托号")
+            return
+
+        if req.exchange == Exchange.SSE:
+            market: int = 0
+        else:
+            market: int = 1
+
+        self.xt_client.cancel_order_stock_sysid_async(self.xt_account, market, sysid)
+
+    def query_position(self) -> None:
+        """查询持仓"""
+        self.xt_client.query_stock_positions_async(self.xt_account, self.on_query_positions_async)
+
+    def query_account(self) -> None:
+        """查询账户资金"""
+        self.xt_client.query_stock_asset_async(self.xt_account, self.on_query_asset_async)
+
+    def query_order(self) -> None:
+        """查询委托信息"""
+        self.xt_client.query_stock_orders_async(self.xt_account, self.on_query_order_async)
+
+    def query_trade(self) -> None:
+        """查询成交信息"""
+        self.xt_client.query_stock_trades_async(self.xt_account, self.on_query_trades_async)
+
+    def connect(self, session: int = 0) -> int:
+        """发起连接"""
+        # 创建客户端和账号实例
+        if not session:
+            session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
+
+        # QMT普通版本path填写f"{放置安装文件夹的路径}\\userdata"
+        self.xt_client = XtQuantTrader(self.path, session)
+
+        self.xt_account = StockAccount(self.account_id, account_type=self.account_type)
+
+        # 注册回调接口
+        self.xt_client.register_callback(self)
+
+        # 启动交易线程
+        self.xt_client.start()
+
+        # 建立交易连接，返回0表示连接成功
+        connect_result: int = self.xt_client.connect()
+        if connect_result:
+            self.gateway.write_log("交易接口连接失败")
+            return connect_result
+
+        self.connected = True
+        self.gateway.write_log("交易接口连接成功")
+
+        # 订阅交易回调推送
+        subscribe_result: int = self.xt_client.subscribe(self.xt_account)
+        if subscribe_result:
+            self.gateway.write_log("交易接口订阅失败")
+            return -1
+
+        self.gateway.write_log("交易接口订阅成功")
+
+        # 初始化数据查询
+        self.query_account()
+        self.query_position()
+        self.query_order()
+        self.query_trade()
+
+        return connect_result
+
+    def close(self) -> None:
+        """关闭连接"""
+        if self.inited:
+            self.xt_client.stop()
 
 
 def generate_datetime(timestamp: int, millisecond: bool = True) -> datetime:
