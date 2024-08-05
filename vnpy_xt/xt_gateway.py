@@ -241,7 +241,6 @@ class XtMdApi:
         """行情推送回调"""
         for xt_symbol, buf in data.items():
             for d in buf:
-                xt_symbol: str = next(iter(data.keys()))
                 symbol, xt_exchange = xt_symbol.split(".")
                 exchange = EXCHANGE_XT2VT[xt_exchange]
 
