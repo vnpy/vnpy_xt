@@ -127,6 +127,7 @@ class XtGateway(BaseGateway):
         "股票市场": ["是", "否"],
         "期货市场": ["是", "否"],
         "期权市场": ["是", "否"],
+        "交易": ["是", "否"],
         "账号类型": ["股票", "股票期权"],
         "路径": "",
         "资金账号": ""
@@ -141,6 +142,7 @@ class XtGateway(BaseGateway):
         self.md_api: "XtMdApi" = XtMdApi(self)
         self.td_api: "XtTdApi" = XtTdApi(self)
 
+        self.trading: bool = False
         self.orders: dict[str, OrderData] = {}
 
     def connect(self, setting: dict) -> None:
@@ -151,17 +153,19 @@ class XtGateway(BaseGateway):
         futures_active: bool = setting["期货市场"] == "是"
         option_active: bool = setting["期权市场"] == "是"
 
-        path: str = setting["路径"]
-        accountid: str = setting["资金账号"]
-        if setting["账号类型"] == "股票":
-            account_type: str = "STOCK"
-        else:
-            account_type: str = "STOCK_OPTION"
-
         self.md_api.connect(token, stock_active, futures_active, option_active)
-        self.td_api.init(path, accountid, account_type)
 
-        self.init_query()
+        self.trading = setting["交易"] == "是"
+        if self.trading:
+            path: str = setting["路径"]
+            accountid: str = setting["资金账号"]
+            if setting["账号类型"] == "股票":
+                account_type: str = "STOCK"
+            else:
+                account_type: str = "STOCK_OPTION"
+
+            self.td_api.init(path, accountid, account_type)
+            self.init_query()
 
     def subscribe(self, req: SubscribeRequest) -> None:
         """订阅行情"""
@@ -169,19 +173,25 @@ class XtGateway(BaseGateway):
 
     def send_order(self, req: OrderRequest) -> str:
         """委托下单"""
-        return self.td_api.send_order(req)
+        if self.trading:
+            return self.td_api.send_order(req)
+        else:
+            return ""
 
     def cancel_order(self, req: CancelRequest) -> None:
         """委托撤单"""
-        self.td_api.cancel_order(req)
+        if self.trading:
+            self.td_api.cancel_order(req)
 
     def query_account(self) -> None:
         """查询资金"""
-        self.td_api.query_account()
+        if self.trading:
+            self.td_api.query_account()
 
     def query_position(self) -> None:
         """查询持仓"""
-        self.td_api.query_position()
+        if self.trading:
+            self.td_api.query_position()
 
     def query_history(self, req: HistoryRequest) -> None:
         """查询历史数据"""
@@ -198,7 +208,8 @@ class XtGateway(BaseGateway):
 
     def close(self) -> None:
         """关闭接口"""
-        self.td_api.close()
+        if self.trading:
+            self.td_api.close()
 
     def process_timer_event(self, event) -> None:
         """定时事件处理"""
@@ -241,7 +252,6 @@ class XtMdApi:
         """行情推送回调"""
         for xt_symbol, buf in data.items():
             for d in buf:
-                xt_symbol: str = next(iter(data.keys()))
                 symbol, xt_exchange = xt_symbol.split(".")
                 exchange = EXCHANGE_XT2VT[xt_exchange]
 
