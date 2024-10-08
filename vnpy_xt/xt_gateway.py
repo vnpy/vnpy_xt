@@ -480,7 +480,8 @@ class XtMdApi:
                 data: dict = xtdata.get_instrument_detail(xt_symbol)
 
             if not data["ExpireDate"]:
-                continue
+                if "00" not in symbol:
+                    continue
 
             contract: ContractData = ContractData(
                 symbol=symbol,
