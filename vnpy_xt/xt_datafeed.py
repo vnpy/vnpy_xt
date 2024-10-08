@@ -94,15 +94,6 @@ class XtDatafeed(BaseDatafeed):
         # 设置token
         xtdc.set_token(self.password)
 
-        # 将VIP服务器设为连接池
-        server_list: list = [
-            "115.231.218.73:55310",
-            "115.231.218.79:55310",
-            "218.16.123.11:55310",
-            "218.16.123.27:55310"
-        ]
-        xtdc.set_allow_optmize_address(server_list)
-
         # 开启使用期货真实夜盘时间
         xtdc.set_future_realtime_mode(True)
 
