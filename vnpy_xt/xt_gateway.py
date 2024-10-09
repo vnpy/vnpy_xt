@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Callable, Optional
+from threading import Thread
 
 from xtquant import (
     xtdata,
@@ -127,9 +128,9 @@ class XtGateway(BaseGateway):
         "股票市场": ["是", "否"],
         "期货市场": ["是", "否"],
         "期权市场": ["是", "否"],
-        "交易": ["是", "否"],
+        "仿真交易": ["是", "否"],
         "账号类型": ["股票", "股票期权"],
-        "路径": "",
+        "QMT路径": "",
         "资金账号": ""
     }
 
@@ -145,7 +146,17 @@ class XtGateway(BaseGateway):
         self.trading: bool = False
         self.orders: dict[str, OrderData] = {}
 
+        self.thread: Thread = None
+
     def connect(self, setting: dict) -> None:
+        """连接交易接口"""
+        if self.thread:
+            return
+
+        self.thread = Thread(target=self._connect, args=(setting,))
+        self.thread.start()
+
+    def _connect(self, setting: dict) -> None:
         """连接交易接口"""
         token: str = setting["token"]
 
@@ -155,16 +166,18 @@ class XtGateway(BaseGateway):
 
         self.md_api.connect(token, stock_active, futures_active, option_active)
 
-        self.trading = setting["交易"] == "是"
+        self.trading = setting["仿真交易"] == "是"
         if self.trading:
-            path: str = setting["路径"]
+            path: str = setting["QMT路径"] + "\\userdata"
+
             accountid: str = setting["资金账号"]
+
             if setting["账号类型"] == "股票":
                 account_type: str = "STOCK"
             else:
                 account_type: str = "STOCK_OPTION"
 
-            self.td_api.init(path, accountid, account_type)
+            self.td_api.connect(path, accountid, account_type)
             self.init_query()
 
     def subscribe(self, req: SubscribeRequest) -> None:
@@ -313,6 +326,8 @@ class XtMdApi:
         option_active: bool
     ) -> None:
         """连接"""
+        self.gateway.write_log("开始启动行情服务，请稍等")
+
         self.token = token
         self.stock_active = stock_active
         self.futures_active = futures_active
@@ -564,23 +579,11 @@ class XtTdApi(XtQuantTraderCallback):
         self.xt_client: XtQuantTrader = None
         self.xt_account: StockAccount = None
 
-    def init(self, path: str, accountid: str, account_type: str) -> None:
-        """初始化"""
-        if self.inited:
-            self.gateway.write_log("已经初始化，请勿重复操作")
-            return
-
-        self.inited = True
-        self.account_id = accountid
-        self.path = path
-        self.account_type = account_type
-        self.connect()
-
     def on_connected(self):
         """
         连接成功推送
         """
-        pass
+        self.gateway.write_log("交易接口连接成功")
 
     def on_disconnected(self):
         """连接断开"""
@@ -595,6 +598,36 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log("交易接口重连失败")
         else:
             self.gateway.write_log("交易接口重连成功")
+
+    def on_stock_trade(self, xt_trade: XtTrade) -> None:
+        """成交变动推送"""
+        if not xt_trade.order_remark:
+            return
+
+        symbol, xt_exchange = xt_trade.stock_code.split(".")
+
+        direction, offset = DIRECTION_XT2VT.get(xt_trade.order_type, (None, None))
+        if direction is None:
+            return
+
+        trade: TradeData = TradeData(
+            symbol=symbol,
+            exchange=EXCHANGE_XT2VT[xt_exchange],
+            orderid=xt_trade.order_remark,
+            tradeid=xt_trade.traded_id,
+            direction=direction,
+            offset=offset,
+            price=xt_trade.traded_price,
+            volume=xt_trade.traded_volume,
+            datetime=generate_datetime(xt_trade.traded_time, False),
+            gateway_name=self.gateway_name
+        )
+
+        contract: ContractData = symbol_contract_map.get(trade.vt_symbol, None)
+        if contract:
+            trade.price = round_to(trade.price, contract.pricetick)
+
+        self.gateway.on_trade(trade)
 
     def on_stock_order(self, xt_order: XtOrder) -> None:
         """委托回报推送"""
@@ -633,6 +666,10 @@ class XtTdApi(XtQuantTraderCallback):
         else:
             self.active_localid_sysid_map.pop(xt_order.order_remark, None)
 
+        contract: ContractData = symbol_contract_map.get(order.vt_symbol, None)
+        if contract:
+            order.price = round_to(order.price, contract.pricetick)
+
         self.gateway.on_order(order)
 
     def on_query_order_async(self, xt_orders: list[XtOrder]) -> None:
@@ -642,6 +679,8 @@ class XtTdApi(XtQuantTraderCallback):
 
         for data in xt_orders:
             self.on_stock_order(data)
+
+        self.gateway.write_log("委托信息查询成功")
 
     def on_query_asset_async(self, xt_asset: XtAsset) -> None:
         """资金信息异步查询回报"""
@@ -658,32 +697,6 @@ class XtTdApi(XtQuantTraderCallback):
 
         self.gateway.on_account(account)
 
-    def on_stock_trade(self, xt_trade: XtTrade) -> None:
-        """成交变动推送"""
-        if not xt_trade.order_remark:
-            return
-
-        symbol, xt_exchange = xt_trade.stock_code.split(".")
-
-        direction, offset = DIRECTION_XT2VT.get(xt_trade.order_type, (None, None))
-        if direction is None:
-            return
-
-        trade: TradeData = TradeData(
-            symbol=symbol,
-            exchange=EXCHANGE_XT2VT[xt_exchange],
-            orderid=xt_trade.order_remark,
-            tradeid=xt_trade.traded_id,
-            direction=direction,
-            offset=offset,
-            price=xt_trade.traded_price,
-            volume=xt_trade.traded_volume,
-            datetime=generate_datetime(xt_trade.traded_time, False),
-            gateway_name=self.gateway_name
-        )
-
-        self.gateway.on_trade(trade)
-
     def on_query_trades_async(self, xt_trades: list[XtTrade]) -> None:
         """成交信息异步查询回报"""
         if not xt_trades:
@@ -691,6 +704,8 @@ class XtTdApi(XtQuantTraderCallback):
 
         for xt_trade in xt_trades:
             self.on_stock_trade(xt_trade)
+
+        self.gateway.write_log("成交信息查询成功")
 
     def on_query_positions_async(self, xt_positions: list[XtPosition]) -> None:
         """持仓信息异步查询回报"""
@@ -736,11 +751,62 @@ class XtTdApi(XtQuantTraderCallback):
 
     def on_order_stock_async_response(self, response: XtOrderResponse) -> None:
         """异步下单回报推送"""
-        pass
+        if response.error_msg:
+            self.gateway.write_log(f"委托请求提交失败：{response.error_msg}，本地委托号{response.order_remark}")
+        else:
+            self.gateway.write_log(f"委托请求提交成功，本地委托号{response.order_remark}")
 
     def on_cancel_order_stock_async_response(self, response: XtCancelOrderResponse) -> None:
         """异步撤单回报推送"""
-        pass
+        if response.error_msg:
+            self.gateway.write_log(f"撤单请求提交失败：{response.error_msg}，系统委托号{response.order_sysid}")
+        else:
+            self.gateway.write_log(f"撤单请求提交成功，系统委托号{response.order_sysid}")
+
+    def connect(self, path: str, accountid: str, account_type: str) -> int:
+        """发起连接"""
+        self.inited = True
+        self.account_id = accountid
+        self.path = path
+        self.account_type = account_type
+
+        # 创建客户端和账号实例
+        session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
+
+        self.xt_client = XtQuantTrader(self.path, session)
+
+        self.xt_account = StockAccount(self.account_id, account_type=self.account_type)
+
+        # 注册回调接口
+        self.xt_client.register_callback(self)
+
+        # 启动交易线程
+        self.xt_client.start()
+
+        # 建立交易连接，返回0表示连接成功
+        connect_result: int = self.xt_client.connect()
+        if connect_result:
+            self.gateway.write_log("交易接口连接失败")
+            return connect_result
+
+        self.connected = True
+        self.gateway.write_log("交易接口连接成功")
+
+        # 订阅交易回调推送
+        subscribe_result: int = self.xt_client.subscribe(self.xt_account)
+        if subscribe_result:
+            self.gateway.write_log("交易推送订阅失败")
+            return -1
+
+        self.gateway.write_log("交易推送订阅成功")
+
+        # 初始化数据查询
+        self.query_account()
+        self.query_position()
+        self.query_order()
+        self.query_trade()
+
+        return connect_result
 
     def new_orderid(self) -> str:
         """生成本地委托号"""
@@ -814,61 +880,23 @@ class XtTdApi(XtQuantTraderCallback):
 
     def query_position(self) -> None:
         """查询持仓"""
-        self.xt_client.query_stock_positions_async(self.xt_account, self.on_query_positions_async)
+        if self.connected:
+            self.xt_client.query_stock_positions_async(self.xt_account, self.on_query_positions_async)
 
     def query_account(self) -> None:
         """查询账户资金"""
-        self.xt_client.query_stock_asset_async(self.xt_account, self.on_query_asset_async)
+        if self.connected:
+            self.xt_client.query_stock_asset_async(self.xt_account, self.on_query_asset_async)
 
     def query_order(self) -> None:
         """查询委托信息"""
-        self.xt_client.query_stock_orders_async(self.xt_account, self.on_query_order_async)
+        if self.connected:
+            self.xt_client.query_stock_orders_async(self.xt_account, self.on_query_order_async)
 
     def query_trade(self) -> None:
         """查询成交信息"""
-        self.xt_client.query_stock_trades_async(self.xt_account, self.on_query_trades_async)
-
-    def connect(self, session: int = 0) -> int:
-        """发起连接"""
-        # 创建客户端和账号实例
-        if not session:
-            session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
-
-        # QMT普通版本path填写f"{放置安装文件夹的路径}\\userdata"
-        self.xt_client = XtQuantTrader(self.path, session)
-
-        self.xt_account = StockAccount(self.account_id, account_type=self.account_type)
-
-        # 注册回调接口
-        self.xt_client.register_callback(self)
-
-        # 启动交易线程
-        self.xt_client.start()
-
-        # 建立交易连接，返回0表示连接成功
-        connect_result: int = self.xt_client.connect()
-        if connect_result:
-            self.gateway.write_log("交易接口连接失败")
-            return connect_result
-
-        self.connected = True
-        self.gateway.write_log("交易接口连接成功")
-
-        # 订阅交易回调推送
-        subscribe_result: int = self.xt_client.subscribe(self.xt_account)
-        if subscribe_result:
-            self.gateway.write_log("交易接口订阅失败")
-            return -1
-
-        self.gateway.write_log("交易接口订阅成功")
-
-        # 初始化数据查询
-        self.query_account()
-        self.query_position()
-        self.query_order()
-        self.query_trade()
-
-        return connect_result
+        if self.connected:
+            self.xt_client.query_stock_trades_async(self.xt_account, self.on_query_trades_async)
 
     def close(self) -> None:
         """关闭连接"""
