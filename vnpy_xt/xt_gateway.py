@@ -527,9 +527,9 @@ class XtMdApi:
             _, xt_exchange = xt_symbol.split(".")
 
             if xt_exchange in {"SHO", "SZO"}:
-                contract = process_etf_option(xtdata.get_instrument_detail, xt_symbol)
+                contract = process_etf_option(xtdata.get_instrument_detail, xt_symbol, self.gateway_name)
             else:
-                contract = process_futures_option(xtdata.get_instrument_detail, xt_symbol)
+                contract = process_futures_option(xtdata.get_instrument_detail, xt_symbol, self.gateway_name)
 
             if contract:
                 symbol_contract_map[contract.vt_symbol] = contract
@@ -914,7 +914,7 @@ def generate_datetime(timestamp: int, millisecond: bool = True) -> datetime:
     return dt
 
 
-def process_etf_option(get_instrument_detail: Callable, xt_symbol: str) -> Optional[ContractData]:
+def process_etf_option(get_instrument_detail: Callable, xt_symbol: str, gateway_name: str) -> Optional[ContractData]:
     """处理ETF期权"""
     # 拆分XT代码
     symbol, xt_exchange = xt_symbol.split(".")
@@ -954,13 +954,13 @@ def process_etf_option(get_instrument_detail: Callable, xt_symbol: str) -> Optio
         option_index=option_index,
         option_type=option_type,
         option_underlying=data["OptUndlCode"] + "-" + str(data["ExpireDate"])[:6],
-        gateway_name="XT"
+        gateway_name=gateway_name
     )
 
     return contract
 
 
-def process_futures_option(get_instrument_detail: Callable, xt_symbol: str) -> Optional[ContractData]:
+def process_futures_option(get_instrument_detail: Callable, xt_symbol: str, gateway_name: str) -> Optional[ContractData]:
     """处理期货期权"""
     # 筛选期权合约
     data: dict = get_instrument_detail(xt_symbol, True)
@@ -1012,7 +1012,7 @@ def process_futures_option(get_instrument_detail: Callable, xt_symbol: str) -> O
         option_index=str(data["OptExercisePrice"]),
         option_type=option_type,
         option_underlying=option_underlying,
-        gateway_name="XT"
+        gateway_name=gateway_name
     )
 
     if contract.exchange == Exchange.CZCE:
