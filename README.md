@@ -1,19 +1,19 @@
-# VeighNa框架的迅投数据服务接口
+# VeighNa框架的迅投研数据服务接口
 
 <p align="center">
   <img src ="https://vnpy.oss-cn-shanghai.aliyuncs.com/vnpy-logo.png"/>
 </p>
 
 <p align="center">
-    <img src ="https://img.shields.io/badge/version-1.0.0-blueviolet.svg"/>
+    <img src ="https://img.shields.io/badge/version-1.2.2-blueviolet.svg"/>
     <img src ="https://img.shields.io/badge/platform-windows-yellow.svg"/>
-    <img src ="https://img.shields.io/badge/python-3.10-blue.svg" />
+    <img src ="https://img.shields.io/badge/python-3.10|3.11|3.12-blue.svg" />
     <img src ="https://img.shields.io/github/license/vnpy/vnpy.svg?color=orange"/>
 </p>
 
 ## 说明
 
-基于迅投XtQuant封装开发的数据服务接口，支持以下中国金融市场的K线和Tick数据：
+基于迅投XtQuant封装开发的实时行情和数据服务接口，支持以下中国金融市场的K线和Tick数据：
 
 * 股票、基金、债券、ETF期权：
   * SSE：上海证券交易所
