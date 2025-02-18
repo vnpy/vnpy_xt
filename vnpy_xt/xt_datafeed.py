@@ -2,10 +2,7 @@ from datetime import datetime, timedelta, time
 from typing import Optional, Callable
 
 from pandas import DataFrame
-from xtquant import (
-    xtdata,
-    xtdatacenter as xtdc
-)
+from xtquant import xtdata, xtdatacenter as xtdc
 from filelock import FileLock, Timeout
 
 from vnpy.trader.setting import SETTINGS
@@ -15,15 +12,11 @@ from vnpy.trader.utility import ZoneInfo, get_file_path
 from vnpy.trader.datafeed import BaseDatafeed
 
 
-INTERVAL_VT2XT: dict[Interval, str] = {
-    Interval.MINUTE: "1m",
-    Interval.DAILY: "1d",
-    Interval.TICK: "tick"
-}
+INTERVAL_VT2XT: dict[Interval, str] = {Interval.MINUTE: "1m", Interval.DAILY: "1d", Interval.TICK: "tick"}
 
 INTERVAL_ADJUSTMENT_MAP: dict[Interval, timedelta] = {
     Interval.MINUTE: timedelta(minutes=1),
-    Interval.DAILY: timedelta()         # 日线无需进行调整
+    Interval.DAILY: timedelta(),  # 日线无需进行调整
 }
 
 EXCHANGE_VT2XT: dict[Exchange, str] = {
@@ -129,10 +122,7 @@ class XtDatafeed(BaseDatafeed):
 
             # 日线，过滤尚未走完的当日数据
             if req.interval == Interval.DAILY:
-                incomplete_bar: bool = (
-                    dt.date() == datetime.now().date()
-                    and datetime.now().time() < time(hour=15)
-                )
+                incomplete_bar: bool = dt.date() == datetime.now().date() and datetime.now().time() < time(hour=15)
                 if incomplete_bar:
                     continue
             # 分钟线，过滤盘前集合竞价数据（合并到开盘后第1根K线中）
@@ -151,7 +141,7 @@ class XtDatafeed(BaseDatafeed):
                         open_price=float(tp.open),
                         volume=float(tp.volume),
                         turnover=float(tp.amount),
-                        gateway_name="XT"
+                        gateway_name="XT",
                     )
                     continue
 
@@ -168,7 +158,7 @@ class XtDatafeed(BaseDatafeed):
                 high_price=float(tp.high),
                 low_price=float(tp.low),
                 close_price=float(tp.close),
-                gateway_name="XT"
+                gateway_name="XT",
             )
 
             # 合并集合竞价数据
@@ -274,7 +264,9 @@ def get_history_df(req: HistoryRequest, output: Callable = print) -> DataFrame:
         xt_symbol += "O"
 
     xtdata.download_history_data(xt_symbol, xt_interval, start, end)
-    data: dict = xtdata.get_local_data([], [xt_symbol], xt_interval, start, end, -1, "front_ratio", False)      # 默认等比前复权
+    data: dict = xtdata.get_local_data(
+        [], [xt_symbol], xt_interval, start, end, -1, "front_ratio", False
+    )  # 默认等比前复权
 
     df: DataFrame = data[xt_symbol]
     return df

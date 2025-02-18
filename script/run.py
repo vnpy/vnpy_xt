@@ -3,7 +3,8 @@ from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import MainWindow, create_qapp
 
 from vnpy_xt import XtGateway
-from vnpy_datamanager import DataManagerApp
+
+# from vnpy_datamanager import DataManagerApp
 
 
 # 配置datafeed相关信息，也可以通过vt_setting.json全局文件配置
@@ -20,7 +21,7 @@ def main():
     event_engine = EventEngine()
     main_engine = MainEngine(event_engine)
     main_engine.add_gateway(XtGateway)
-    main_engine.add_app(DataManagerApp)
+    # main_engine.add_app(DataManagerApp)
 
     main_window = MainWindow(main_engine, event_engine)
     main_window.showMaximized()
