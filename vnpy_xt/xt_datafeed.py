@@ -94,6 +94,9 @@ class XtDatafeed(BaseDatafeed):
         # 设置token
         xtdc.set_token(self.password)
 
+        # 设置连接池
+        xtdc.set_allow_optmize_address(["115.231.218.73:55310", "115.231.218.79:55310"])
+
         # 开启使用期货真实夜盘时间
         xtdc.set_future_realtime_mode(True)
 
