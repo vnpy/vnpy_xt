@@ -112,8 +112,9 @@ ORDERTYPE_XT2VT: dict[int, OrderType] = {
 CHINA_TZ = ZoneInfo("Asia/Shanghai")       # 中国时区
 
 
-# 合约数据全局缓存字典
-symbol_contract_map: dict[str, ContractData] = {}
+# 全局缓存字典
+symbol_contract_map: dict[str, ContractData] = {}       # 合约数据
+symbol_limit_map: dict[str, tuple[float, float]] = {}   # 涨跌停价
 
 
 class XtGateway(BaseGateway):
@@ -316,6 +317,9 @@ class XtMdApi:
                 tick.low_price = round_to(d["low"], contract.pricetick)
                 tick.pre_close = round_to(d["lastClose"], contract.pricetick)
 
+                if tick.vt_symbol in symbol_limit_map:
+                    tick.limit_up, tick.limit_down = symbol_limit_map[tick.vt_symbol]
+
                 self.gateway.on_tick(tick)
 
     def connect(
@@ -447,6 +451,8 @@ class XtMdApi:
             )
 
             symbol_contract_map[contract.vt_symbol] = contract
+            symbol_limit_map[contract.vt_symbol] = (data["UpStopPrice"], data["DownStopPrice"])
+
             self.gateway.on_contract(contract)
 
     def query_future_contracts(self) -> None:
@@ -501,6 +507,8 @@ class XtMdApi:
             )
 
             symbol_contract_map[contract.vt_symbol] = contract
+            symbol_limit_map[contract.vt_symbol] = (data["UpStopPrice"], data["DownStopPrice"])
+
             self.gateway.on_contract(contract)
 
     def query_option_contracts(self) -> None:
@@ -527,12 +535,13 @@ class XtMdApi:
             _, xt_exchange = xt_symbol.split(".")
 
             if xt_exchange in {"SHO", "SZO"}:
-                contract = process_etf_option(xtdata.get_instrument_detail, xt_symbol)
+                contract = process_etf_option(xtdata.get_instrument_detail, xt_symbol, self.gateway_name)
             else:
-                contract = process_futures_option(xtdata.get_instrument_detail, xt_symbol)
+                contract = process_futures_option(xtdata.get_instrument_detail, xt_symbol, self.gateway_name)
 
             if contract:
                 symbol_contract_map[contract.vt_symbol] = contract
+
                 self.gateway.on_contract(contract)
 
     def subscribe(self, req: SubscribeRequest) -> None:
@@ -914,7 +923,7 @@ def generate_datetime(timestamp: int, millisecond: bool = True) -> datetime:
     return dt
 
 
-def process_etf_option(get_instrument_detail: Callable, xt_symbol: str) -> Optional[ContractData]:
+def process_etf_option(get_instrument_detail: Callable, xt_symbol: str, gateway_name: str) -> Optional[ContractData]:
     """处理ETF期权"""
     # 拆分XT代码
     symbol, xt_exchange = xt_symbol.split(".")
@@ -954,13 +963,15 @@ def process_etf_option(get_instrument_detail: Callable, xt_symbol: str) -> Optio
         option_index=option_index,
         option_type=option_type,
         option_underlying=data["OptUndlCode"] + "-" + str(data["ExpireDate"])[:6],
-        gateway_name="XT"
+        gateway_name=gateway_name
     )
+
+    symbol_limit_map[contract.vt_symbol] = (data["UpStopPrice"], data["DownStopPrice"])
 
     return contract
 
 
-def process_futures_option(get_instrument_detail: Callable, xt_symbol: str) -> Optional[ContractData]:
+def process_futures_option(get_instrument_detail: Callable, xt_symbol: str, gateway_name: str) -> Optional[ContractData]:
     """处理期货期权"""
     # 筛选期权合约
     data: dict = get_instrument_detail(xt_symbol, True)
@@ -1012,12 +1023,14 @@ def process_futures_option(get_instrument_detail: Callable, xt_symbol: str) -> O
         option_index=str(data["OptExercisePrice"]),
         option_type=option_type,
         option_underlying=option_underlying,
-        gateway_name="XT"
+        gateway_name=gateway_name
     )
 
     if contract.exchange == Exchange.CZCE:
         contract.option_portfolio = data["ProductID"][:-1]
     else:
         contract.option_portfolio = data["ProductID"]
+
+    symbol_limit_map[contract.vt_symbol] = (data["UpStopPrice"], data["DownStopPrice"])
 
     return contract
