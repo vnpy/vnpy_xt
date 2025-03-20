@@ -175,7 +175,7 @@ class XtDatafeed(BaseDatafeed):
             )
 
             # 合并集合竞价数据
-            if auction_bar:
+            if auction_bar and auction_bar.volume:
                 bar.open_price = auction_bar.open_price
                 bar.volume += auction_bar.volume
                 bar.turnover += auction_bar.turnover
