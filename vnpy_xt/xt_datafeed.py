@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, time
-from typing import Optional, Callable
+from collections.abc import Callable
 
 from pandas import DataFrame
 from xtquant import (
@@ -47,13 +47,13 @@ class XtDatafeed(BaseDatafeed):
     lock_filename = "xt_lock"
     lock_filepath = get_file_path(lock_filename)
 
-    def __init__(self):
+    def __init__(self) -> None:
         """"""
         self.username: str = SETTINGS["datafeed.username"]
         self.password: str = SETTINGS["datafeed.password"]
         self.inited: bool = False
 
-        self.lock: FileLock = None
+        self.lock: FileLock | None = None
 
         xtdata.enable_hello = False
 
@@ -106,7 +106,7 @@ class XtDatafeed(BaseDatafeed):
         # 设置监听端口58620
         xtdc.listen(port=58620)
 
-    def query_bar_history(self, req: HistoryRequest, output: Callable = print) -> Optional[list[BarData]]:
+    def query_bar_history(self, req: HistoryRequest, output: Callable = print) -> list[BarData] | None:
         """查询K线数据"""
         history: list[BarData] = []
 
@@ -185,7 +185,7 @@ class XtDatafeed(BaseDatafeed):
 
         return history
 
-    def query_tick_history(self, req: HistoryRequest, output: Callable = print) -> Optional[list[TickData]]:
+    def query_tick_history(self, req: HistoryRequest, output: Callable = print) -> list[TickData] | None:
         """查询Tick数据"""
         history: list[TickData] = []
 
@@ -253,25 +253,25 @@ def get_history_df(req: HistoryRequest, output: Callable = print) -> DataFrame:
     """获取历史数据DataFrame"""
     symbol: str = req.symbol
     exchange: Exchange = req.exchange
-    start: datetime = req.start
-    end: datetime = req.end
+    start_dt: datetime = req.start
+    end_dt: datetime = req.end
     interval: Interval = req.interval
 
     if not interval:
         interval = Interval.TICK
 
-    xt_interval: str = INTERVAL_VT2XT.get(interval, None)
+    xt_interval: str | None = INTERVAL_VT2XT.get(interval, None)
     if not xt_interval:
         output(f"迅投研查询历史数据失败：不支持的时间周期{interval.value}")
         return DataFrame()
 
     # 为了查询夜盘数据
-    end += timedelta(1)
+    end_dt += timedelta(1)
 
     # 从服务器下载获取
     xt_symbol: str = symbol + "." + EXCHANGE_VT2XT[exchange]
-    start: str = start.strftime("%Y%m%d%H%M%S")
-    end: str = end.strftime("%Y%m%d%H%M%S")
+    start: str = start_dt.strftime("%Y%m%d%H%M%S")
+    end: str = end_dt.strftime("%Y%m%d%H%M%S")
 
     if exchange in (Exchange.SSE, Exchange.SZSE) and len(symbol) > 6:
         xt_symbol += "O"
