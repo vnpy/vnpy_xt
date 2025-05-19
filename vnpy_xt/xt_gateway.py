@@ -844,14 +844,9 @@ class XtTdApi(XtQuantTraderCallback):
             self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
             return ""
 
-        if req.offset.value:
-            if contract.product != Product.OPTION:
-                self.gateway.write_log("委托失败，现货交易不需要选择开平方向")
-                return ""
-        else:
-            if contract.product == Product.OPTION:
-                self.gateway.write_log("委托失败，期权交易需要选择开平方向")
-                return ""
+        if req.offset == Offset.NONE and contract.product == Product.OPTION:
+            self.gateway.write_log("委托失败，期权交易需要选择开平方向")
+            return ""
 
         stock_code: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
         if self.account_type == "STOCK_OPTION":
