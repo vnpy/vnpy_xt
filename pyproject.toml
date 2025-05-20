@@ -77,3 +77,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["xtquant.*"]
+ignore_missing_imports = true
