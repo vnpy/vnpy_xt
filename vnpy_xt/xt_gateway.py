@@ -852,12 +852,18 @@ class XtTdApi(XtQuantTraderCallback):
         if self.account_type == "STOCK_OPTION":
             stock_code += "O"
 
+        # 现货委托不考虑开平
+        if contract.product == Product.OPTION:
+            xt_direction: tuple = (req.direction, req.offset)
+        else:
+            xt_direction = (req.direction, Offset.NONE)
+
         orderid: str = self.new_orderid()
 
         self.xt_client.order_stock_async(
             account=self.xt_account,
             stock_code=stock_code,
-            order_type=DIRECTION_VT2XT[(req.direction, req.offset)],
+            order_type=DIRECTION_VT2XT[xt_direction],
             order_volume=int(req.volume),
             price_type=ORDERTYPE_VT2XT[(req.exchange, req.type)],
             price=req.price,
