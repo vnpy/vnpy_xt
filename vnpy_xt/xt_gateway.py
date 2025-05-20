@@ -321,6 +321,19 @@ class XtMdApi:
                 if tick.vt_symbol in symbol_limit_map:
                     tick.limit_up, tick.limit_down = symbol_limit_map[tick.vt_symbol]
 
+                # 判断收盘状态
+                tick.extra = {
+                    "raw": d,
+                    "market_closed": False,
+                }
+
+                # 非衍生品可以通过openInt字段判断证券状态
+                if contract.product not in {Product.FUTURES, Product.OPTION}:
+                    tick.extra["market_closed"] = d["openInt"] == 15
+                # 衍生品该字段为持仓量，需要通过结算价判断
+                elif d["settlementPrice"] > 0:
+                    tick.extra["market_closed"] = True
+
                 self.gateway.on_tick(tick)
 
     def connect(
