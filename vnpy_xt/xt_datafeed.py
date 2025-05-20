@@ -126,7 +126,7 @@ class XtDatafeed(BaseDatafeed):
 
         for tp in df.itertuples():
             # 将迅投研时间戳（K线结束时点）转换为VeighNa时间戳（K线开始时点）
-            dt: datetime = datetime.fromtimestamp(tp.time / 1000)
+            dt: datetime = datetime.fromtimestamp(tp.time / 1000)       # type: ignore
             dt = dt.replace(tzinfo=CHINA_TZ)
             dt = dt - adjustment
 
@@ -151,9 +151,9 @@ class XtDatafeed(BaseDatafeed):
                         symbol=req.symbol,
                         exchange=req.exchange,
                         datetime=dt,
-                        open_price=float(tp.open),
-                        volume=float(tp.volume),
-                        turnover=float(tp.amount),
+                        open_price=float(tp.open),  # type: ignore
+                        volume=float(tp.volume),    # type: ignore
+                        turnover=float(tp.amount),  # type: ignore
                         gateway_name="XT"
                     )
                     continue
@@ -164,13 +164,13 @@ class XtDatafeed(BaseDatafeed):
                 exchange=req.exchange,
                 datetime=dt,
                 interval=req.interval,
-                volume=float(tp.volume),
-                turnover=float(tp.amount),
-                open_interest=float(tp.openInterest),
-                open_price=float(tp.open),
-                high_price=float(tp.high),
-                low_price=float(tp.low),
-                close_price=float(tp.close),
+                volume=float(tp.volume),                # type: ignore
+                turnover=float(tp.amount),              # type: ignore
+                open_interest=float(tp.openInterest),   # type: ignore
+                open_price=float(tp.open),              # type: ignore
+                high_price=float(tp.high),              # type: ignore
+                low_price=float(tp.low),                # type: ignore
+                close_price=float(tp.close),            # type: ignore
                 gateway_name="XT"
             )
 
@@ -200,49 +200,54 @@ class XtDatafeed(BaseDatafeed):
 
         # 遍历解析
         for tp in df.itertuples():
-            dt: datetime = datetime.fromtimestamp(tp.time / 1000)
+            dt: datetime = datetime.fromtimestamp(tp.time / 1000)    # type: ignore
             dt = dt.replace(tzinfo=CHINA_TZ)
+
+            bidPrice: list[float] = tp.bidPrice     # type: ignore
+            askPrice: list[float] = tp.askPrice     # type: ignore
+            bidVol: list[float] = tp.bidVol         # type: ignore
+            askVol: list[float] = tp.askVol         # type: ignore
 
             tick: TickData = TickData(
                 symbol=req.symbol,
                 exchange=req.exchange,
                 datetime=dt,
-                volume=float(tp.volume),
-                turnover=float(tp.amount),
-                open_interest=float(tp.openInt),
-                open_price=float(tp.open),
-                high_price=float(tp.high),
-                low_price=float(tp.low),
-                last_price=float(tp.lastPrice),
-                pre_close=float(tp.lastClose),
-                bid_price_1=float(tp.bidPrice[0]),
-                ask_price_1=float(tp.askPrice[0]),
-                bid_volume_1=float(tp.bidVol[0]),
-                ask_volume_1=float(tp.askVol[0]),
+                volume=float(tp.volume),            # type: ignore
+                turnover=float(tp.amount),          # type: ignore
+                open_interest=float(tp.openInt),    # type: ignore
+                open_price=float(tp.open),          # type: ignore
+                high_price=float(tp.high),          # type: ignore
+                low_price=float(tp.low),            # type: ignore
+                last_price=float(tp.lastPrice),     # type: ignore
+                pre_close=float(tp.lastClose),      # type: ignore
+                bid_price_1=float(bidPrice[0]),
+                ask_price_1=float(askPrice[0]),
+                bid_volume_1=float(bidVol[0]),
+                ask_volume_1=float(askVol[0]),
                 gateway_name="XT",
             )
 
-            bid_price_2: float = float(tp.bidPrice[1])
+            bid_price_2: float = float(bidPrice[1])
             if bid_price_2:
                 tick.bid_price_2 = bid_price_2
-                tick.bid_price_3 = float(tp.bidPrice[2])
-                tick.bid_price_4 = float(tp.bidPrice[3])
-                tick.bid_price_5 = float(tp.bidPrice[4])
+                tick.bid_price_3 = float(bidPrice[2])
+                tick.bid_price_4 = float(bidPrice[3])
+                tick.bid_price_5 = float(bidPrice[4])
 
-                tick.ask_price_2 = float(tp.askPrice[1])
-                tick.ask_price_3 = float(tp.askPrice[2])
-                tick.ask_price_4 = float(tp.askPrice[3])
-                tick.ask_price_5 = float(tp.askPrice[4])
+                tick.ask_price_2 = float(askPrice[1])
+                tick.ask_price_3 = float(askPrice[2])
+                tick.ask_price_4 = float(askPrice[3])
+                tick.ask_price_5 = float(askPrice[4])
 
-                tick.bid_volume_2 = float(tp.bidVol[1])
-                tick.bid_volume_3 = float(tp.bidVol[2])
-                tick.bid_volume_4 = float(tp.bidVol[3])
-                tick.bid_volume_5 = float(tp.bidVol[4])
+                tick.bid_volume_2 = float(bidVol[1])
+                tick.bid_volume_3 = float(bidVol[2])
+                tick.bid_volume_4 = float(bidVol[3])
+                tick.bid_volume_5 = float(bidVol[4])
 
-                tick.ask_volume_2 = float(tp.askVol[1])
-                tick.ask_volume_3 = float(tp.askVol[2])
-                tick.ask_volume_4 = float(tp.askVol[3])
-                tick.ask_volume_5 = float(tp.askVol[4])
+                tick.ask_volume_2 = float(askVol[1])
+                tick.ask_volume_3 = float(askVol[2])
+                tick.ask_volume_4 = float(askVol[3])
+                tick.ask_volume_5 = float(askVol[4])
 
             history.append(tick)
 
