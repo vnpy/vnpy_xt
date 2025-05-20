@@ -1,6 +1,7 @@
 from datetime import datetime
-from typing import Callable, Optional
+from collections.abc import Callable
 from threading import Thread
+from typing import Any
 
 from xtquant import (
     xtdata,
@@ -21,7 +22,7 @@ from xtquant.xttype import (
 )
 from filelock import FileLock, Timeout
 
-from vnpy.event import EventEngine, EVENT_TIMER
+from vnpy.event import EventEngine, EVENT_TIMER, Event
 from vnpy.trader.gateway import BaseGateway
 from vnpy.trader.object import (
     OrderRequest,
@@ -124,7 +125,7 @@ class XtGateway(BaseGateway):
 
     default_name: str = "XT"
 
-    default_setting: dict[str, str] = {
+    default_setting: dict[str, Any] = {
         "token": "",
         "股票市场": ["是", "否"],
         "期货市场": ["是", "否"],
@@ -141,13 +142,14 @@ class XtGateway(BaseGateway):
         """构造函数"""
         super().__init__(event_engine, gateway_name)
 
-        self.md_api: "XtMdApi" = XtMdApi(self)
-        self.td_api: "XtTdApi" = XtTdApi(self)
+        self.md_api: XtMdApi = XtMdApi(self)
+        self.td_api: XtTdApi = XtTdApi(self)
 
         self.trading: bool = False
         self.orders: dict[str, OrderData] = {}
+        self.count: int = 0
 
-        self.thread: Thread = None
+        self.thread: Thread | None = None
 
     def connect(self, setting: dict) -> None:
         """连接交易接口"""
@@ -176,7 +178,7 @@ class XtGateway(BaseGateway):
             if setting["账号类型"] == "股票":
                 account_type: str = "STOCK"
             else:
-                account_type: str = "STOCK_OPTION"
+                account_type = "STOCK_OPTION"
 
             self.td_api.connect(path, accountid, account_type)
             self.init_query()
@@ -225,7 +227,7 @@ class XtGateway(BaseGateway):
         if self.trading:
             self.td_api.close()
 
-    def process_timer_event(self, event) -> None:
+    def process_timer_event(self, event: Event) -> None:
         """定时事件处理"""
         self.count += 1
         if self.count < 2:
@@ -238,7 +240,6 @@ class XtGateway(BaseGateway):
 
     def init_query(self) -> None:
         """初始化查询任务"""
-        self.count: int = 0
         self.query_functions: list = [self.query_account, self.query_position]
         self.event_engine.register(EVENT_TIMER, self.process_timer_event)
 
@@ -348,7 +349,7 @@ class XtMdApi:
             xtdata.get_instrument_detail("000001.SZ")
         except Exception as ex:
             self.gateway.write_log(f"迅投研数据服务初始化失败，发生异常：{ex}")
-            return False
+            return
 
         self.inited = True
 
@@ -489,7 +490,7 @@ class XtMdApi:
             if product == Product.OPTION:
                 data: dict = xtdata.get_instrument_detail(xt_symbol, True)
             else:
-                data: dict = xtdata.get_instrument_detail(xt_symbol)
+                data = xtdata.get_instrument_detail(xt_symbol)
 
             if not data["ExpireDate"]:
                 if "00" not in symbol:
@@ -588,20 +589,20 @@ class XtTdApi(XtQuantTraderCallback):
         self.xt_client: XtQuantTrader = None
         self.xt_account: StockAccount = None
 
-    def on_connected(self):
+    def on_connected(self) -> None:
         """
         连接成功推送
         """
         self.gateway.write_log("交易接口连接成功")
 
-    def on_disconnected(self):
+    def on_disconnected(self) -> None:
         """连接断开"""
         self.gateway.write_log("交易接口连接断开，请检查与客户端的连接状态")
         self.connected = False
 
         # 尝试重连，重连需要更换session_id
         session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
-        connect_result = self.connect(session)
+        connect_result: int = self.connect(self.path, self.accountid, self.account_type, session)
 
         if connect_result:
             self.gateway.write_log("交易接口重连失败")
@@ -725,7 +726,7 @@ class XtTdApi(XtQuantTraderCallback):
             if self.account_type == "STOCK":
                 direction: Direction = Direction.NET
             else:
-                direction: Direction = POSDIRECTION_XT2VT.get(xt_position.direction, "")
+                direction = POSDIRECTION_XT2VT.get(xt_position.direction, "")
 
             if not direction:
                 continue
@@ -772,7 +773,7 @@ class XtTdApi(XtQuantTraderCallback):
         else:
             self.gateway.write_log(f"撤单请求提交成功，系统委托号{response.order_sysid}")
 
-    def connect(self, path: str, accountid: str, account_type: str) -> int:
+    def connect(self, path: str, accountid: str, account_type: str, session: int = 0) -> int:
         """发起连接"""
         self.inited = True
         self.account_id = accountid
@@ -780,7 +781,8 @@ class XtTdApi(XtQuantTraderCallback):
         self.account_type = account_type
 
         # 创建客户端和账号实例
-        session: int = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
+        if not session:
+            session = int(float(datetime.now().strftime("%H%M%S.%f")) * 1000)
 
         self.xt_client = XtQuantTrader(self.path, session)
 
@@ -836,20 +838,15 @@ class XtTdApi(XtQuantTraderCallback):
 
         if contract.exchange not in {Exchange.SSE, Exchange.SZSE, Exchange.BSE}:
             self.gateway.write_log(f"不支持的合约{req.vt_symbol}")
-            return
+            return ""
 
         if req.type not in {OrderType.LIMIT}:
             self.gateway.write_log(f"不支持的委托类型: {req.type.value}")
             return ""
 
-        if req.offset.value:
-            if contract.product != Product.OPTION:
-                self.gateway.write_log("委托失败，现货交易不需要选择开平方向")
-                return ""
-        else:
-            if contract.product == Product.OPTION:
-                self.gateway.write_log("委托失败，期权交易需要选择开平方向")
-                return ""
+        if req.offset == Offset.NONE and contract.product == Product.OPTION:
+            self.gateway.write_log("委托失败，期权交易需要选择开平方向")
+            return ""
 
         stock_code: str = req.symbol + "." + EXCHANGE_VT2XT[req.exchange]
         if self.account_type == "STOCK_OPTION":
@@ -871,11 +868,13 @@ class XtTdApi(XtQuantTraderCallback):
         order: OrderData = req.create_order_data(orderid, self.gateway_name)
         self.gateway.on_order(order)
 
-        return order.vt_orderid
+        vt_orderid: str = order.vt_orderid
+
+        return vt_orderid
 
     def cancel_order(self, req: CancelRequest) -> None:
         """委托撤单"""
-        sysid: str = self.active_localid_sysid_map.get(req.orderid, None)
+        sysid: str | None = self.active_localid_sysid_map.get(req.orderid, None)
         if not sysid:
             self.gateway.write_log("撤单失败，找不到委托号")
             return
@@ -883,7 +882,7 @@ class XtTdApi(XtQuantTraderCallback):
         if req.exchange == Exchange.SSE:
             market: int = 0
         else:
-            market: int = 1
+            market = 1
 
         self.xt_client.cancel_order_stock_sysid_async(self.xt_account, market, sysid)
 
@@ -918,12 +917,12 @@ def generate_datetime(timestamp: int, millisecond: bool = True) -> datetime:
     if millisecond:
         dt: datetime = datetime.fromtimestamp(timestamp / 1000)
     else:
-        dt: datetime = datetime.fromtimestamp(timestamp)
-    dt: datetime = dt.replace(tzinfo=CHINA_TZ)
+        dt = datetime.fromtimestamp(timestamp)
+    dt = dt.replace(tzinfo=CHINA_TZ)
     return dt
 
 
-def process_etf_option(get_instrument_detail: Callable, xt_symbol: str, gateway_name: str) -> Optional[ContractData]:
+def process_etf_option(get_instrument_detail: Callable, xt_symbol: str, gateway_name: str) -> ContractData | None:
     """处理ETF期权"""
     # 拆分XT代码
     symbol, xt_exchange = xt_symbol.split(".")
@@ -971,7 +970,7 @@ def process_etf_option(get_instrument_detail: Callable, xt_symbol: str, gateway_
     return contract
 
 
-def process_futures_option(get_instrument_detail: Callable, xt_symbol: str, gateway_name: str) -> Optional[ContractData]:
+def process_futures_option(get_instrument_detail: Callable, xt_symbol: str, gateway_name: str) -> ContractData | None:
     """处理期货期权"""
     # 筛选期权合约
     data: dict = get_instrument_detail(xt_symbol, True)
@@ -984,11 +983,11 @@ def process_futures_option(get_instrument_detail: Callable, xt_symbol: str, gate
     symbol, xt_exchange = xt_symbol.split(".")
 
     # 移除产品前缀
-    for ix, w in enumerate(symbol):
+    for _ix, w in enumerate(symbol):
         if w.isdigit():
             break
 
-    suffix: str = symbol[ix:]
+    suffix: str = symbol[_ix:]
 
     # 过滤非期权合约
     if "(" in symbol or " " in symbol:
@@ -1006,7 +1005,7 @@ def process_futures_option(get_instrument_detail: Callable, xt_symbol: str, gate
     if "-" in symbol:
         option_underlying: str = symbol.split("-")[0]
     else:
-        option_underlying: str = data["OptUndlCode"]
+        option_underlying = data["OptUndlCode"]
 
     # 转换数据
     contract: ContractData = ContractData(
