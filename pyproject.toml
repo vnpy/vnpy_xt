@@ -23,7 +23,7 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "xtquant>=240920.1.2",
-    "filelock>=3.18.0"
+    "filelock>=3.8.2"
 ]
 keywords = ["quant", "quantitative", "investment", "trading", "algotrading"]
 
