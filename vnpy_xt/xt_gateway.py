@@ -452,6 +452,9 @@ class XtMdApi:
 
             # 生成并推送合约信息
             data: dict = xtdata.get_instrument_detail(xt_symbol)
+            if data is None:
+                self.gateway.write_log(f"合约{xt_symbol}信息查询失败")
+                continue
 
             contract: ContractData = ContractData(
                 symbol=symbol,
