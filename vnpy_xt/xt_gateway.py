@@ -51,6 +51,9 @@ from vnpy.trader.utility import (
     round_to
 )
 
+from .xt_config import VIP_ADDRESS_LIST, LISTEN_PORT
+
+
 # 交易所映射
 EXCHANGE_VT2XT: dict[Exchange, str] = {
     Exchange.SSE: "SH",
@@ -388,14 +391,17 @@ class XtMdApi:
         # 设置token
         xtdc.set_token(self.token)
 
+        # 设置连接池
+        xtdc.set_allow_optmize_address(VIP_ADDRESS_LIST)
+
         # 开启使用期货真实夜盘时间
         xtdc.set_future_realtime_mode(True)
 
         # 执行初始化，但不启动默认58609端口监听
         xtdc.init(False)
 
-        # 设置监听端口58620
-        xtdc.listen(port=58620)
+        # 设置监听端口
+        xtdc.listen(port=LISTEN_PORT)
 
     def query_contracts(self) -> None:
         """查询合约信息"""
@@ -452,6 +458,9 @@ class XtMdApi:
 
             # 生成并推送合约信息
             data: dict = xtdata.get_instrument_detail(xt_symbol)
+            if data is None:
+                self.gateway.write_log(f"合约{xt_symbol}信息查询失败")
+                continue
 
             contract: ContractData = ContractData(
                 symbol=symbol,

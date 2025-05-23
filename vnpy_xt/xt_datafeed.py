@@ -14,6 +14,8 @@ from vnpy.trader.object import BarData, TickData, HistoryRequest
 from vnpy.trader.utility import ZoneInfo, get_file_path
 from vnpy.trader.datafeed import BaseDatafeed
 
+from .xt_config import VIP_ADDRESS_LIST, LISTEN_PORT
+
 
 INTERVAL_VT2XT: dict[Interval, str] = {
     Interval.MINUTE: "1m",
@@ -95,7 +97,7 @@ class XtDatafeed(BaseDatafeed):
         xtdc.set_token(self.password)
 
         # 设置连接池
-        xtdc.set_allow_optmize_address(["115.231.218.73:55310", "115.231.218.79:55310"])
+        xtdc.set_allow_optmize_address(VIP_ADDRESS_LIST)
 
         # 开启使用期货真实夜盘时间
         xtdc.set_future_realtime_mode(True)
@@ -103,8 +105,8 @@ class XtDatafeed(BaseDatafeed):
         # 执行初始化，但不启动默认58609端口监听
         xtdc.init(False)
 
-        # 设置监听端口58620
-        xtdc.listen(port=58620)
+        # 设置监听端口
+        xtdc.listen(port=LISTEN_PORT)
 
     def query_bar_history(self, req: HistoryRequest, output: Callable = print) -> list[BarData] | None:
         """查询K线数据"""
