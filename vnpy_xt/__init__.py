@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+"""迅投研行情网关与历史数据服务。"""
 
 from .xt_datafeed import XtDatafeed as Datafeed
 from .xt_gateway import XtGateway

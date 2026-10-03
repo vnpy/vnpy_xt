@@ -1,3 +1,5 @@
+"""迅投研历史数据服务。"""
+
 from datetime import datetime, timedelta, time
 from collections.abc import Callable
 
@@ -50,7 +52,7 @@ class XtDatafeed(BaseDatafeed):
     lock_filepath = get_file_path(lock_filename)
 
     def __init__(self) -> None:
-        """"""
+        """读取数据服务账号，并关闭xtquant欢迎信息。"""
         self.username: str = SETTINGS["datafeed.username"]
         self.password: str = SETTINGS["datafeed.password"]
         self.inited: bool = False

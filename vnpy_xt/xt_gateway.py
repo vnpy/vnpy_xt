@@ -1,3 +1,5 @@
+"""迅投研实时行情与交易网关。"""
+
 from datetime import datetime
 from collections.abc import Callable
 from threading import Thread
@@ -122,9 +124,7 @@ symbol_limit_map: dict[str, tuple[float, float]] = {}   # 涨跌停价
 
 
 class XtGateway(BaseGateway):
-    """
-    VeighNa用于对接迅投研的实时行情接口。
-    """
+    """VeighNa用于对接迅投研的实时行情接口。"""
 
     default_name: str = "XT"
 
@@ -612,9 +612,7 @@ class XtTdApi(XtQuantTraderCallback):
         self.xt_account: StockAccount = None
 
     def on_connected(self) -> None:
-        """
-        连接成功推送
-        """
+        """连接成功推送"""
         self.gateway.write_log("交易接口连接成功")
 
     def on_disconnected(self) -> None:

@@ -1,3 +1,5 @@
+"""启动迅投研交易终端。"""
+
 from vnpy.event import EventEngine
 from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import MainWindow, create_qapp
