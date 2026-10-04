@@ -1,6 +1,7 @@
 """迅投研历史数据服务。"""
 
 from datetime import datetime, timedelta, time
+from typing import cast
 from collections.abc import Callable
 
 from pandas import DataFrame
@@ -43,6 +44,15 @@ EXCHANGE_VT2XT: dict[Exchange, str] = {
 }
 
 CHINA_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def _as_float(value: object) -> float:
+    """
+    把 pandas 单元格视为 float。
+
+    itertuples 的字段在类型上是巨大联合，运行时迅投研行情字段是数值。
+    """
+    return cast(float, value)
 
 
 class XtDatafeed(BaseDatafeed):
@@ -110,7 +120,7 @@ class XtDatafeed(BaseDatafeed):
         # 设置监听端口
         xtdc.listen(port=LISTEN_PORT)
 
-    def query_bar_history(self, req: HistoryRequest, output: Callable = print) -> list[BarData] | None:
+    def query_bar_history(self, req: HistoryRequest, output: Callable = print) -> list[BarData]:
         """查询K线数据"""
         history: list[BarData] = []
 
@@ -123,14 +133,14 @@ class XtDatafeed(BaseDatafeed):
         if df.empty:
             return history
 
-        adjustment: timedelta = INTERVAL_ADJUSTMENT_MAP[req.interval]
+        adjustment: timedelta = INTERVAL_ADJUSTMENT_MAP[cast(Interval, req.interval)]
 
         # 遍历解析
-        auction_bar: BarData = None
+        auction_bar: BarData | None = None
 
         for tp in df.itertuples():
             # 将迅投研时间戳（K线结束时点）转换为VeighNa时间戳（K线开始时点）
-            dt: datetime = datetime.fromtimestamp(tp.time / 1000)
+            dt: datetime = datetime.fromtimestamp(_as_float(tp.time) / 1000)
             dt = dt.replace(tzinfo=CHINA_TZ)
             dt = dt - adjustment
 
@@ -155,9 +165,9 @@ class XtDatafeed(BaseDatafeed):
                         symbol=req.symbol,
                         exchange=req.exchange,
                         datetime=dt,
-                        open_price=float(tp.open),
-                        volume=float(tp.volume),
-                        turnover=float(tp.amount),
+                        open_price=float(_as_float(tp.open)),
+                        volume=float(_as_float(tp.volume)),
+                        turnover=float(_as_float(tp.amount)),
                         gateway_name="XT"
                     )
                     continue
@@ -168,13 +178,13 @@ class XtDatafeed(BaseDatafeed):
                 exchange=req.exchange,
                 datetime=dt,
                 interval=req.interval,
-                volume=float(tp.volume),
-                turnover=float(tp.amount),
-                open_interest=float(tp.openInterest),
-                open_price=float(tp.open),
-                high_price=float(tp.high),
-                low_price=float(tp.low),
-                close_price=float(tp.close),
+                volume=float(_as_float(tp.volume)),
+                turnover=float(_as_float(tp.amount)),
+                open_interest=float(_as_float(tp.openInterest)),
+                open_price=float(_as_float(tp.open)),
+                high_price=float(_as_float(tp.high)),
+                low_price=float(_as_float(tp.low)),
+                close_price=float(_as_float(tp.close)),
                 gateway_name="XT"
             )
 
@@ -191,7 +201,7 @@ class XtDatafeed(BaseDatafeed):
 
         return history
 
-    def query_tick_history(self, req: HistoryRequest, output: Callable = print) -> list[TickData] | None:
+    def query_tick_history(self, req: HistoryRequest, output: Callable = print) -> list[TickData]:
         """查询Tick数据"""
         history: list[TickData] = []
 
@@ -206,26 +216,26 @@ class XtDatafeed(BaseDatafeed):
 
         # 遍历解析
         for tp in df.itertuples():
-            dt: datetime = datetime.fromtimestamp(tp.time / 1000)
+            dt: datetime = datetime.fromtimestamp(_as_float(tp.time) / 1000)
             dt = dt.replace(tzinfo=CHINA_TZ)
 
-            bidPrice: list[float] = tp.bidPrice
-            askPrice: list[float] = tp.askPrice
-            bidVol: list[float] = tp.bidVol
-            askVol: list[float] = tp.askVol
+            bidPrice: list[float] = cast(list[float], tp.bidPrice)
+            askPrice: list[float] = cast(list[float], tp.askPrice)
+            bidVol: list[float] = cast(list[float], tp.bidVol)
+            askVol: list[float] = cast(list[float], tp.askVol)
 
             tick: TickData = TickData(
                 symbol=req.symbol,
                 exchange=req.exchange,
                 datetime=dt,
-                volume=float(tp.volume),
-                turnover=float(tp.amount),
-                open_interest=float(tp.openInt),
-                open_price=float(tp.open),
-                high_price=float(tp.high),
-                low_price=float(tp.low),
-                last_price=float(tp.lastPrice),
-                pre_close=float(tp.lastClose),
+                volume=float(_as_float(tp.volume)),
+                turnover=float(_as_float(tp.amount)),
+                open_interest=float(_as_float(tp.openInt)),
+                open_price=float(_as_float(tp.open)),
+                high_price=float(_as_float(tp.high)),
+                low_price=float(_as_float(tp.low)),
+                last_price=float(_as_float(tp.lastPrice)),
+                pre_close=float(_as_float(tp.lastClose)),
                 bid_price_1=float(bidPrice[0]),
                 ask_price_1=float(askPrice[0]),
                 bid_volume_1=float(bidVol[0]),
@@ -265,8 +275,8 @@ def get_history_df(req: HistoryRequest, output: Callable = print) -> DataFrame:
     symbol: str = req.symbol
     exchange: Exchange = req.exchange
     start_dt: datetime = req.start
-    end_dt: datetime = req.end
-    interval: Interval = req.interval
+    end_dt: datetime = cast(datetime, req.end)
+    interval: Interval | None = req.interval
 
     if not interval:
         interval = Interval.TICK

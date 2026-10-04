@@ -3,7 +3,7 @@
 from datetime import datetime
 from collections.abc import Callable
 from threading import Thread
-from typing import Any
+from typing import cast
 
 from xtquant import (
     xtdata,
@@ -32,6 +32,7 @@ from vnpy.trader.object import (
     SubscribeRequest,
     ContractData,
     TickData,
+    BarData,
     HistoryRequest,
     OptionType,
     OrderData,
@@ -128,18 +129,19 @@ class XtGateway(BaseGateway):
 
     default_name: str = "XT"
 
-    default_setting: dict[str, Any] = {
+    # 下拉选项是 list[str]，不在基类值类型 str | int | float | bool 里，字典内容保持不变。
+    default_setting: dict[str, str | int | float | bool] = {
         "token": "",
-        "股票市场": ["是", "否"],
-        "期货市场": ["是", "否"],
-        "期权市场": ["是", "否"],
-        "仿真交易": ["是", "否"],
-        "账号类型": ["股票", "股票期权"],
+        "股票市场": ["是", "否"],  # type: ignore[dict-item]
+        "期货市场": ["是", "否"],  # type: ignore[dict-item]
+        "期权市场": ["是", "否"],  # type: ignore[dict-item]
+        "仿真交易": ["是", "否"],  # type: ignore[dict-item]
+        "账号类型": ["股票", "股票期权"],  # type: ignore[dict-item]
         "QMT路径": "",
         "资金账号": ""
     }
 
-    exchanges: list[str] = list(EXCHANGE_VT2XT.keys())
+    exchanges: list[Exchange] = list(EXCHANGE_VT2XT.keys())
 
     def __init__(self, event_engine: EventEngine, gateway_name: str) -> None:
         """构造函数"""
@@ -212,16 +214,16 @@ class XtGateway(BaseGateway):
         if self.trading:
             self.td_api.query_position()
 
-    def query_history(self, req: HistoryRequest) -> None:
+    def query_history(self, req: HistoryRequest) -> list[BarData]:
         """查询历史数据"""
-        return None
+        return []
 
     def on_order(self, order: OrderData) -> None:
         """推送委托数据"""
         self.orders[order.orderid] = order
         super().on_order(order)
 
-    def get_order(self, orderid: str) -> OrderData:
+    def get_order(self, orderid: str) -> OrderData | None:
         """查询委托数据"""
         return self.orders.get(orderid, None)
 
@@ -653,7 +655,7 @@ class XtTdApi(XtQuantTraderCallback):
             gateway_name=self.gateway_name
         )
 
-        contract: ContractData = symbol_contract_map.get(trade.vt_symbol, None)
+        contract: ContractData | None = symbol_contract_map.get(trade.vt_symbol, None)
         if contract:
             trade.price = round_to(trade.price, contract.pricetick)
 
@@ -666,7 +668,7 @@ class XtTdApi(XtQuantTraderCallback):
             return
 
         # 过滤不支持的委托类型
-        type: OrderType = ORDERTYPE_XT2VT.get(xt_order.price_type, None)
+        type: OrderType | None = ORDERTYPE_XT2VT.get(xt_order.price_type, None)
         if not type:
             return
 
@@ -696,7 +698,7 @@ class XtTdApi(XtQuantTraderCallback):
         else:
             self.active_localid_sysid_map.pop(xt_order.order_remark, None)
 
-        contract: ContractData = symbol_contract_map.get(order.vt_symbol, None)
+        contract: ContractData | None = symbol_contract_map.get(order.vt_symbol, None)
         if contract:
             order.price = round_to(order.price, contract.pricetick)
 
@@ -746,7 +748,10 @@ class XtTdApi(XtQuantTraderCallback):
             if self.account_type == "STOCK":
                 direction: Direction = Direction.NET
             else:
-                direction = POSDIRECTION_XT2VT.get(xt_position.direction, "")
+                direction = POSDIRECTION_XT2VT.get(
+                    xt_position.direction,
+                    cast(Direction, ""),
+                )
 
             if not direction:
                 continue
@@ -768,7 +773,7 @@ class XtTdApi(XtQuantTraderCallback):
 
     def on_order_error(self, xt_error: XtOrderError) -> None:
         """委托失败推送"""
-        order: OrderData = self.gateway.get_order(xt_error.order_remark)
+        order: OrderData | None = self.gateway.get_order(xt_error.order_remark)
         if order:
             order.status = Status.REJECTED
             self.gateway.on_order(order)
@@ -851,7 +856,7 @@ class XtTdApi(XtQuantTraderCallback):
 
     def send_order(self, req: OrderRequest) -> str:
         """委托下单"""
-        contract: ContractData = symbol_contract_map.get(req.vt_symbol, None)
+        contract: ContractData | None = symbol_contract_map.get(req.vt_symbol, None)
         if not contract:
             self.gateway.write_log(f"找不到该合约{req.vt_symbol}")
             return ""
