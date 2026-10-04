@@ -238,6 +238,26 @@ def _reset_state() -> None:
     gw.symbol_limit_map.clear()
 
 
+@pytest.mark.parametrize(
+    ("xt_symbol", "product"),
+    [
+        ("000001.SZ", Product.EQUITY),
+        ("002001.SZ", Product.EQUITY),
+        ("300059.SZ", Product.EQUITY),
+        ("301001.SZ", Product.EQUITY),
+        ("159919.SZ", Product.FUND),
+        ("399001.SZ", Product.INDEX),
+        ("600000.SH", Product.EQUITY),
+        ("688001.SH", Product.EQUITY),
+        ("510050.SH", Product.FUND),
+        ("000001.SH", Product.INDEX),
+        ("830000.BJ", Product.EQUITY),
+    ],
+)
+def test_get_stock_product(xt_symbol: str, product: Product) -> None:
+    assert gw.get_stock_product(xt_symbol) == product
+
+
 def test_generate_datetime_millisecond_and_second_use_china_tz() -> None:
     naive: datetime = datetime(2024, 1, 2, 9, 30, 0)
     seconds: int = int(naive.timestamp())

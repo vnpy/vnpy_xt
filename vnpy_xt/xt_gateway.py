@@ -76,6 +76,30 @@ EXCHANGE_XT2VT["SHO"] = Exchange.SSE
 EXCHANGE_XT2VT["SZO"] = Exchange.SZSE
 
 
+def get_stock_product(xt_symbol: str) -> Product | None:
+    """按迅投代码判断股票、基金或指数。"""
+    xt_exchange: str = xt_symbol.split(".", 1)[1]
+
+    if xt_exchange == "SZ":
+        if xt_symbol.startswith(("00", "30")):
+            return Product.EQUITY
+        if xt_symbol.startswith("159"):
+            return Product.FUND
+        return Product.INDEX
+
+    if xt_exchange == "SH":
+        if xt_symbol.startswith(("60", "68")):
+            return Product.EQUITY
+        if xt_symbol.startswith("51"):
+            return Product.FUND
+        return Product.INDEX
+
+    if xt_exchange == "BJ":
+        return Product.EQUITY
+
+    return None
+
+
 # 委托状态映射
 STATUS_XT2VT: dict[str, Status] = {
     xtconstant.ORDER_UNREPORTED: Status.SUBMITTING,
@@ -444,29 +468,11 @@ class XtMdApi:
         xt_symbol: str
         for xt_symbol in xt_symbols:
             # 筛选需要的合约
-            product: Product | None = None
             symbol: str
             xt_exchange: str
             symbol, xt_exchange = xt_symbol.split(".")
-
-            if xt_exchange == "SZ":
-                if xt_symbol.startswith("00"):
-                    product = Product.EQUITY
-                elif xt_symbol.startswith("159"):
-                    product = Product.FUND
-                else:
-                    product = Product.INDEX
-            elif xt_exchange == "SH":
-                if xt_symbol.startswith(("60", "68")):
-                    product = Product.EQUITY
-                elif xt_symbol.startswith("51"):
-                    product = Product.FUND
-                else:
-                    product = Product.INDEX
-            elif xt_exchange == "BJ":
-                product = Product.EQUITY
-
-            if not product:
+            product: Product | None = get_stock_product(xt_symbol)
+            if product is None:
                 continue
 
             # 生成并推送合约信息
