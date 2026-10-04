@@ -1,7 +1,8 @@
 """迅投研历史数据服务。"""
 
 from datetime import datetime, timedelta, time
-from typing import cast
+from pathlib import Path
+from typing import Any, cast
 from collections.abc import Callable
 
 from pandas import DataFrame
@@ -43,7 +44,7 @@ EXCHANGE_VT2XT: dict[Exchange, str] = {
     Exchange.GFEX: "GF",
 }
 
-CHINA_TZ = ZoneInfo("Asia/Shanghai")
+CHINA_TZ: ZoneInfo = ZoneInfo("Asia/Shanghai")
 
 
 def _as_float(value: object) -> float:
@@ -58,8 +59,8 @@ def _as_float(value: object) -> float:
 class XtDatafeed(BaseDatafeed):
     """迅投研数据服务接口"""
 
-    lock_filename = "xt_lock"
-    lock_filepath = get_file_path(lock_filename)
+    lock_filename: str = "xt_lock"
+    lock_filepath: Path = get_file_path(lock_filename)
 
     def __init__(self) -> None:
         """读取数据服务账号，并关闭xtquant欢迎信息。"""
@@ -76,6 +77,7 @@ class XtDatafeed(BaseDatafeed):
         if self.inited:
             return True
 
+        ex: Exception
         try:
             # 使用Token连接，无需启动客户端
             if self.username != "client":
@@ -138,6 +140,8 @@ class XtDatafeed(BaseDatafeed):
         # 遍历解析
         auction_bar: BarData | None = None
 
+        # itertuples 静态类型是 tuple，列字段无法命名
+        tp: Any
         for tp in df.itertuples():
             # 将迅投研时间戳（K线结束时点）转换为VeighNa时间戳（K线开始时点）
             dt: datetime = datetime.fromtimestamp(_as_float(tp.time) / 1000)
@@ -215,6 +219,8 @@ class XtDatafeed(BaseDatafeed):
             return history
 
         # 遍历解析
+        # itertuples 静态类型是 tuple，列字段无法命名
+        tp: Any
         for tp in df.itertuples():
             dt: datetime = datetime.fromtimestamp(_as_float(tp.time) / 1000)
             dt = dt.replace(tzinfo=CHINA_TZ)

@@ -1,6 +1,7 @@
 """迅投研实时行情与交易网关。"""
 
 from datetime import datetime
+from pathlib import Path
 from collections.abc import Callable
 from threading import Thread
 from typing import cast
@@ -116,7 +117,7 @@ ORDERTYPE_XT2VT: dict[int, OrderType] = {
 }
 
 # 其他常量
-CHINA_TZ = ZoneInfo("Asia/Shanghai")       # 中国时区
+CHINA_TZ: ZoneInfo = ZoneInfo("Asia/Shanghai")       # 中国时区
 
 
 # 全局缓存字典
@@ -239,7 +240,7 @@ class XtGateway(BaseGateway):
             return
         self.count = 0
 
-        func = self.query_functions.pop(0)
+        func: Callable[[], None] = self.query_functions.pop(0)
         func()
         self.query_functions.append(func)
 
@@ -252,8 +253,8 @@ class XtGateway(BaseGateway):
 class XtMdApi:
     """行情API"""
 
-    lock_filename = "xt_lock"
-    lock_filepath = get_file_path(lock_filename)
+    lock_filename: str = "xt_lock"
+    lock_filepath: Path = get_file_path(lock_filename)
 
     def __init__(self, gateway: XtGateway) -> None:
         """构造函数"""
@@ -270,10 +271,15 @@ class XtMdApi:
 
     def onMarketData(self, data: dict) -> None:
         """行情推送回调"""
+        xt_symbol: str
+        buf: list[dict]
         for xt_symbol, buf in data.items():
+            d: dict
             for d in buf:
+                symbol: str
+                xt_exchange: str
                 symbol, xt_exchange = xt_symbol.split(".")
-                exchange = EXCHANGE_XT2VT[xt_exchange]
+                exchange: Exchange = EXCHANGE_XT2VT[xt_exchange]
 
                 tick: TickData = TickData(
                     symbol=symbol,
@@ -285,7 +291,7 @@ class XtMdApi:
                     gateway_name=self.gateway_name
                 )
 
-                contract = symbol_contract_map[tick.vt_symbol]
+                contract: ContractData = symbol_contract_map[tick.vt_symbol]
                 tick.name = contract.name
 
                 bp_data: list = d["bidPrice"]
@@ -360,6 +366,7 @@ class XtMdApi:
             self.gateway.write_log("行情接口已经初始化，请勿重复操作")
             return
 
+        ex: Exception
         try:
             self.init_xtdc()
 
@@ -377,7 +384,7 @@ class XtMdApi:
 
     def get_lock(self) -> bool:
         """获取文件锁，确保单例运行"""
-        self.lock = FileLock(self.lock_filepath)
+        self.lock: FileLock = FileLock(self.lock_filepath)
 
         try:
             self.lock.acquire(timeout=1)
@@ -429,13 +436,17 @@ class XtMdApi:
             "京市A股"
         ]
 
+        i: str
         for i in markets:
             names: list = xtdata.get_stock_list_in_sector(i)
             xt_symbols.extend(names)
 
+        xt_symbol: str
         for xt_symbol in xt_symbols:
             # 筛选需要的合约
-            product = None
+            product: Product | None = None
+            symbol: str
+            xt_exchange: str
             symbol, xt_exchange = xt_symbol.split(".")
 
             if xt_exchange == "SZ":
@@ -492,13 +503,17 @@ class XtMdApi:
             "广期所期货"
         ]
 
+        i: str
         for i in markets:
             names: list = xtdata.get_stock_list_in_sector(i)
             xt_symbols.extend(names)
 
+        xt_symbol: str
         for xt_symbol in xt_symbols:
             # 筛选需要的合约
-            product = None
+            product: Product | None = None
+            symbol: str
+            xt_exchange: str
             symbol, xt_exchange = xt_symbol.split(".")
 
             if xt_exchange == "ZF" and len(symbol) > 6 and "&" not in symbol:
@@ -551,16 +566,19 @@ class XtMdApi:
             "广期所期权"
         ]
 
+        i: str
         for i in markets:
             names: list = xtdata.get_stock_list_in_sector(i)
             xt_symbols.extend(names)
 
+        xt_symbol: str
         for xt_symbol in xt_symbols:
             ""
+            xt_exchange: str
             _, xt_exchange = xt_symbol.split(".")
 
             if xt_exchange in {"SHO", "SZO"}:
-                contract = process_etf_option(xtdata.get_instrument_detail, xt_symbol, self.gateway_name)
+                contract: ContractData | None = process_etf_option(xtdata.get_instrument_detail, xt_symbol, self.gateway_name)
             else:
                 contract = process_futures_option(xtdata.get_instrument_detail, xt_symbol, self.gateway_name)
 
@@ -592,7 +610,7 @@ class XtMdApi:
 class XtTdApi(XtQuantTraderCallback):
     """交易API"""
 
-    def __init__(self, gateway: XtGateway):
+    def __init__(self, gateway: XtGateway) -> None:
         """构造函数"""
         super().__init__()
 
@@ -636,8 +654,12 @@ class XtTdApi(XtQuantTraderCallback):
         if not xt_trade.order_remark:
             return
 
+        symbol: str
+        xt_exchange: str
         symbol, xt_exchange = xt_trade.stock_code.split(".")
 
+        direction: Direction | None
+        offset: Offset
         direction, offset = DIRECTION_XT2VT.get(xt_trade.order_type, (None, None))
         if direction is None:
             return
@@ -672,10 +694,14 @@ class XtTdApi(XtQuantTraderCallback):
         if not type:
             return
 
+        direction: Direction | None
+        offset: Offset
         direction, offset = DIRECTION_XT2VT.get(xt_order.order_type, (None, None))
         if direction is None:
             return
 
+        symbol: str
+        xt_exchange: str
         symbol, xt_exchange = xt_order.stock_code.split(".")
 
         order: OrderData = OrderData(
@@ -709,6 +735,7 @@ class XtTdApi(XtQuantTraderCallback):
         if not xt_orders:
             return
 
+        data: XtOrder
         for data in xt_orders:
             self.on_stock_order(data)
 
@@ -734,6 +761,7 @@ class XtTdApi(XtQuantTraderCallback):
         if not xt_trades:
             return
 
+        xt_trade: XtTrade
         for xt_trade in xt_trades:
             self.on_stock_trade(xt_trade)
 
@@ -744,6 +772,7 @@ class XtTdApi(XtQuantTraderCallback):
         if not xt_positions:
             return
 
+        xt_position: XtPosition
         for xt_position in xt_positions:
             if self.account_type == "STOCK":
                 direction: Direction = Direction.NET
@@ -756,6 +785,8 @@ class XtTdApi(XtQuantTraderCallback):
             if not direction:
                 continue
 
+            symbol: str
+            xt_exchange: str
             symbol, xt_exchange = xt_position.stock_code.split(".")
 
             position: PositionData = PositionData(
@@ -956,6 +987,8 @@ def generate_datetime(timestamp: int, millisecond: bool = True) -> datetime:
 def process_etf_option(get_instrument_detail: Callable, xt_symbol: str, gateway_name: str) -> ContractData | None:
     """处理ETF期权"""
     # 拆分XT代码
+    symbol: str
+    xt_exchange: str
     symbol, xt_exchange = xt_symbol.split(".")
 
     # 筛选期权合约合约（ETF期权代码为8位）
@@ -967,14 +1000,14 @@ def process_etf_option(get_instrument_detail: Callable, xt_symbol: str, gateway_
 
     name: str = data["InstrumentName"]
     if "购" in name:
-        option_type = OptionType.CALL
+        option_type: OptionType = OptionType.CALL
     elif "沽" in name:
         option_type = OptionType.PUT
     else:
         return None
 
     if "A" in name:
-        option_index = str(data["OptExercisePrice"]) + "-A"
+        option_index: str = str(data["OptExercisePrice"]) + "-A"
     else:
         option_index = str(data["OptExercisePrice"]) + "-M"
 
@@ -1011,9 +1044,13 @@ def process_futures_option(get_instrument_detail: Callable, xt_symbol: str, gate
         return None
 
     # 拆分XT代码
+    symbol: str
+    xt_exchange: str
     symbol, xt_exchange = xt_symbol.split(".")
 
     # 移除产品前缀
+    _ix: int
+    w: str
     for _ix, w in enumerate(symbol):
         if w.isdigit():
             break
@@ -1026,7 +1063,7 @@ def process_futures_option(get_instrument_detail: Callable, xt_symbol: str, gate
 
     # 判断期权类型
     if "C" in suffix:
-        option_type = OptionType.CALL
+        option_type: OptionType = OptionType.CALL
     elif "P" in suffix:
         option_type = OptionType.PUT
     else:

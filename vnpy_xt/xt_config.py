@@ -1,8 +1,8 @@
 """迅投研VIP地址与本地监听端口。"""
 
-VIP_ADDRESS_LIST = [
+VIP_ADDRESS_LIST: list[str] = [
     "115.231.218.73:55310",
     "115.231.218.79:55310"
 ]
 
-LISTEN_PORT = 58620
+LISTEN_PORT: int = 58620
