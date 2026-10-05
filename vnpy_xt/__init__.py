@@ -29,4 +29,4 @@ from .xt_gateway import XtGateway
 __all__ = ["Datafeed", "XtGateway"]
 
 
-__version__ = "1.4.6"
+__version__ = "1.4.7"
